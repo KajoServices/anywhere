@@ -1,0 +1,12 @@
+"""
+Rename this to local.py and fill settings
+"""
+
+# Elasticsearch
+ES_ADDRESS = 'a.b.c.d'
+ES_PORT = 9200
+
+
+# Cassandra
+CASSANDRA_NODE_ADDRESS = 'e.f.g.h'
+CASSANDRA_KEYSPACE = '<keyspace>'
