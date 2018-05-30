@@ -124,6 +124,105 @@ STATIC_ROOT = rel('static')
 STATIC_URL = '/static/'
 
 
+# Django logging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'request': {
+            'format': "[%(asctime)s] %(message)s",
+            'datefmt': "%Y-%m-%d %H:%M:%S %z",
+        },
+        'verbose': {
+            'format': "[%(asctime)s %(levelname)s] [%(module)s.%(name)s %(funcName)s:%(lineno)s] %(message)s",
+            'datefmt': "%Y-%m-%d %H:%M:%S %z",
+        },
+        'semiverbose': {
+            'format': "[%(asctime)s %(levelname)s] [%(funcName)s] %(message)s",
+            'datefmt': "%Y-%m-%d %H:%M:%S %z",
+        },
+        'standard': {
+            'format': "[%(asctime)s %(levelname)s] %(message)s",
+            'datefmt': "%Y-%m-%d %H:%M:%S %z",
+        },
+        'simple': {
+            "format" : "[%(asctime)s %(levelname)s] %(message)s",
+            'datefmt': "%H:%M:%S %z",
+        }
+    },
+    'filters': {},
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'default': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': rel('log', 'app_root.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 1,
+            'formatter': 'standard',
+        },
+        'request_handler': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': rel('log', 'app_django_access.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 1,
+            'formatter': 'request',
+        },
+        'streaming': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': rel('log', 'app_stream.log'),
+            'maxBytes': 1024*1024*10, # 10 MB
+            'backupCount': 1,
+            'formatter': 'semiverbose',
+        },
+        'tasks': {
+            'level':'DEBUG',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': rel('log',  'app_tasks.log'),
+            'maxBytes': 1024*1024*10, # 10 MB
+            'backupCount': 1,
+            'formatter': 'semiverbose',
+        }
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG'
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['request_handler'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'commands': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'default': {
+            'handlers': ['default'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'tasks': {
+            'handlers': ['tasks'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'tweet': {
+            'handlers': ['streaming'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
+
 # Elasticsearch
 # number of document in a batch for scroll.
 ES_SCROLL_BATCHSIZE = 5000
