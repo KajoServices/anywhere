@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',
     'django_extensions',
 
     # 3rd party
@@ -122,6 +123,7 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
+STATIC_ROOT = rel('static')
 STATIC_URL = '/static/'
 
 
@@ -144,6 +146,30 @@ CELERY_ACCEPT_CONTENT = ['application/json', 'pickle']
 
 # World borders file
 WORLD_BORDERS = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
+
+
+# CORS settings
+CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOW_METHODS = (
+    'DELETE',
+    'GET',
+    'PATCH',
+    'POST',
+    'PUT',
+    'OPTIONS'
+    )
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = (
+    'x-requested-with',
+    'X-HTTP-Method-Override',
+    'content-type',
+    'accept',
+    'origin',
+    'user-agent',
+    'authorization',
+    'x-csrftoken',
+)
+CORS_PREFLIGHT_MAX_AGE = 86400
 
 
 # Load local settings
