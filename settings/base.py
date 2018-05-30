@@ -19,9 +19,6 @@ def rel(*x):
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '^r*q@6u+)77n#7d2ze#+*t4n8ijj@^)*+8&i4g9tvvx3qapj0i'
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
