@@ -1,9 +1,14 @@
 from django.test import TestCase
 
-# Create your tests here.
+"""
+Test request:
 
-fixture = {
-    "tweetid": "1001236768572747777",
+curl -X POST \
+  http://<XXX.XXX.XXX.XXX>:<XXXX>/api/tweet/ \
+  -H 'Cache-Control: no-cache' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "tweetid": "1001236768572747771",
     "created_at": "2018-05-28T21:00:22",
     "annotations": {"flood_probability": 0.7},
     "lang": "en",
@@ -72,7 +77,7 @@ fixture = {
                 "id_str": "17843782",
                 "utc_offset": -18000,
                 "statuses_count": 341915,
-                "description": "Songwriter. Creative. INFP. Ravenclaw. Scout's Regiment. Chicken enthusiast. Wrestling smark. Objective hater. Violence isn\u2019t the answer,but sometimes it is.",
+                "description": "Songwriter. Creative. INFP. Ravenclaw. Scout'\''s Regiment. Chicken enthusiast. Wrestling smark. Objective hater. Violence isn\u2019t the answer,but sometimes it is.",
                 "friends_count": 404,
                 "profile_link_color": "0084B4",
                 "profile_image_url": "http://pbs.twimg.com/profile_images/986753851515723776/pA4Jw94K_normal.jpg",
@@ -243,3 +248,5 @@ fixture = {
         }
     }
 }
+'
+"""
