@@ -124,7 +124,7 @@ class TweetNormalizer(object):
         try:
             annot = self.original['annotations']
         except KeyError:
-            raise Exception("Record must contain `annotations`!")
+            raise Exception("Record must contain 'annotations'!")
 
         try:
             flood_probability = annot['flood_probability']
@@ -145,7 +145,7 @@ class TweetNormalizer(object):
                 "lon": self.original['latlong'][1]
                 }
         except KeyError:
-            raise Exception("Record must contain `latlong`!")
+            raise Exception("Record must contain 'latlong'!")
 
         try:
             geotags = self.original['geotags']

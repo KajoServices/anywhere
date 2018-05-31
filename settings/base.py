@@ -268,6 +268,10 @@ CORS_ALLOW_HEADERS = (
 CORS_PREFLIGHT_MAX_AGE = 86400
 
 
+# API settings
+API_LIMIT_PER_PAGE = 36
+
+
 # Load local settings
 try:
     from .local import *
