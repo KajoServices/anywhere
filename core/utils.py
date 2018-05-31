@@ -71,3 +71,18 @@ def flatten_dict(dict_, parent_key='', separator='_'):
         else:
             items.append((new_key, val))
     return dict(items)
+
+
+def deep_update(source, overrides):
+    """
+    Updates a nested dictionary or similar mapping.
+    Modifies `source` in place.
+    """
+    for key, value in overrides.items():
+        if isinstance(value, collections.Mapping) and value:
+            returned = deep_update(source.get(key, {}), value)
+            source[key] = returned
+        else:
+            source[key] = overrides[key]
+
+    return source

@@ -77,6 +77,7 @@ class TweetResource(Resource):
             result = create_or_update_index(obj['tweetid'], obj)
         except Exception as err:
             raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+
         # If sucessful `result` is either 'created' or 'updated'
         bundle.data.update(result=result)
 
