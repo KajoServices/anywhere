@@ -88,11 +88,12 @@ class TweetResource(Resource):
         else:
             bundle.obj = RecordDict(**obj)
             bundle.obj.pk = obj['tweetid']
+        return bundle
 
     def obj_create(self, bundle, **kwargs):
         object_list = [bundle.data]
         self.authorized_create_detail(object_list, bundle)
-        self.normalize_object(bundle)
+        bundle = self.normalize_object(bundle)
         try:
             result = create_or_update_index(bundle.obj.pk, bundle.obj)
         except Exception as err:
