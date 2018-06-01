@@ -88,15 +88,15 @@ class TweetNormalizer(object):
 
     def __init__(self, doc, **kwargs):
         self.original = doc
-        tweet = doc['tweet']
-        assert isinstance(tweet, (dict, str)), "Wrong type: must be string or dict"
-        if isinstance(tweet, str):
+        assert isinstance(self.original['tweet'], (dict, str)), \
+            "Wrong type: must be string or dict"
+        if isinstance(self.original['tweet'], str):
             try:
-                self.normalized = json.loads(tweet)
+                self.original['tweet'] = json.loads(self.original['tweet'])
             except (TypeError, ValueError):
-                return None
-        else:
-            self.normalized = tweet
+                raise
+
+        self.normalized = self.original['tweet'].copy()
 
     def restructure(self, **kwargs):
         """
