@@ -89,7 +89,7 @@ class TweetNormalizer(object):
     def __init__(self, doc, **kwargs):
         self.original = doc
         tweet = doc['tweet']
-        assert isinstance(tweet, (dict, str)), "Wrong type: must string or dict"
+        assert isinstance(tweet, (dict, str)), "Wrong type: must be string or dict"
         if isinstance(tweet, str):
             try:
                 self.normalized = json.loads(tweet)

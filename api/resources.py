@@ -1,14 +1,21 @@
+import json
+import logging
+
 from tastypie.resources import Resource
 from tastypie.authorization import Authorization
-from tastypie.authentication import Authentication
+from tastypie.authentication import Authentication, ApiKeyAuthentication
 from tastypie.exceptions import ImmediateHttpResponse
 from tastypie import fields
 from tastypie import http
 
+from .auth import StaffAuthorization
 from core.utils import RecordDict
 from analytics.collectors.semantic import get_graph
 from dataman.normalizer import TweetNormalizer
 from dataman.elastic import create_or_update_index, delete_from_index
+
+
+LOG = logging.getLogger('tweet')
 
 
 class EdgeBundleResource(Resource):
@@ -68,28 +75,38 @@ class TweetResource(Resource):
         resource_name = 'tweet'
         list_allowed_methods = ['get', 'post']
         detail_allowed_methods = ['get', 'post', 'delete']
-        authorization = Authorization()
-        authentication = Authentication()
+        authorization = StaffAuthorization()
+        authentication = ApiKeyAuthentication()
 
-    def obj_create(self, bundle, **kwargs):
+    def normalize_object(self, bundle):
         try:
             obj = TweetNormalizer(bundle.data).normalize()
-            result = create_or_update_index(obj['tweetid'], obj)
         except Exception as err:
+            LOG.error("{}: {}\n---FAILURE REPORT START---\n{}\n---FAILURE REPORT END---\n".format(
+                type(err), err, json.dumps(bundle.data, indent=4)))
+            raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+        else:
+            bundle.obj = RecordDict(**obj)
+            bundle.obj.pk = obj['tweetid']
+
+    def obj_create(self, bundle, **kwargs):
+        object_list = [bundle.data]
+        self.authorized_create_detail(object_list, bundle)
+        self.normalize_object(bundle)
+        try:
+            result = create_or_update_index(bundle.obj.pk, bundle.obj)
+        except Exception as err:
+            LOG.error("{}: {}".format(type(err), err))
             raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
 
+        # TODO
         # If sucessful `result` is either 'created' or 'updated'
+        # This should affect response ('created': 201, 'updated': 200)
         bundle.data.update(result=result)
-
-        bundle.obj = RecordDict(**obj)
-        bundle.obj.pk = obj['tweetid']
         return bundle
 
     def obj_delete(self, bundle, **kwargs):
-        # XXX uncomment when auth is done
-        #
-        # self.authorized_delete_detail(self.get_object_list(bundle.request), bundle)
-        #
+        self.authorized_delete_detail(self.get_object_list(bundle.request), bundle)
         try:
             delete_from_index(kwargs['pk'])
         except Exception as err:
