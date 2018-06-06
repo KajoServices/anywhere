@@ -7,30 +7,14 @@ from os import path
 
 
 PROJECT_TITLE = "Anywhere"
-
-
-# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = path.dirname(path.dirname(path.abspath(__file__)))
+
 
 def rel(*x):
     return path.join(BASE_DIR, *x)
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = [
-    '127.0.0.1',
-    'localhost',
-    '173.249.20.52'
-    ]
-
-
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -41,23 +25,44 @@ INSTALLED_APPS = [
     'django.contrib.gis',
     'django_extensions',
 
-    # 3rd party
+    'home',
+    'search',
+
+    'wagtail.contrib.forms',
+    'wagtail.contrib.redirects',
+    'wagtail.embeds',
+    'wagtail.sites',
+    'wagtail.users',
+    'wagtail.snippets',
+    'wagtail.documents',
+    'wagtail.images',
+    'wagtail.search',
+    'wagtail.admin',
+    'wagtail.core',
+
+    'modelcluster',
+    'taggit',
+
     'tastypie',
     'corsheaders',
 
-    # internal
     'core',
+    'analytics',
+    'dataman',
     'api',
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+
+    'wagtail.core.middleware.SiteMiddleware',
+    'wagtail.contrib.redirects.middleware.RedirectMiddleware',
 ]
 
 ROOT_URLCONF = 'urls'
@@ -65,7 +70,9 @@ ROOT_URLCONF = 'urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            rel('templates'),
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -82,7 +89,6 @@ WSGI_APPLICATION = 'wsgi.application'
 
 
 # Database
-# https://docs.djangoproject.com/en/2.0/ref/settings/#databases
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -110,7 +116,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # Internationalization
-# https://docs.djangoproject.com/en/2.0/topics/i18n/
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
@@ -120,8 +125,28 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.0/howto/static-files/
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+]
+
 STATIC_ROOT = rel('static')
+STATICFILES_DIRS = [
+    rel('staticfiles')
+    ]
 STATIC_URL = '/static/'
+
+MEDIA_ROOT = rel('media')
+MEDIA_URL = '/media/'
+
+
+# Wagtail settings
+
+WAGTAIL_SITE_NAME = "anywhere"
+
+# Base URL to use when referring to full URLs within the Wagtail admin backend -
+# e.g. in notification emails. Don't include '/admin' or a trailing slash
+BASE_URL = 'http://anywhere.com'
 
 
 # Django logging
@@ -228,14 +253,6 @@ LOGGING = {
 ES_SCROLL_BATCHSIZE = 5000
 
 
-# Interval for periodically checking new records in Cassandra (seconds)
-CASSANDRA_BEAT = 120
-
-
-# Timedelta for records inflowing from Cassandra (hours in the past relative to UTCnow):
-CASSANDRA_TIMEDELTA = 4
-
-
 # Celery
 CELERY_ACCEPT_CONTENT = ['application/json', 'pickle']
 
@@ -277,3 +294,4 @@ try:
     from .local import *
 except Exception as err:
     print('Error loading local settings:\n%s\n\nUsing base settings.' % err)
+

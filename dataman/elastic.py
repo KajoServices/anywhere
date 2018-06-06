@@ -211,25 +211,38 @@ def ensure_mapping():
     return mapping
 
 
+def index_required(method):
+    """
+    Profiling decorator, measures function runing time.
+    """
+    def index_required_wrapper(*args, **kwargs):
+        try:
+            result = method(*args, **kwargs)
+        except NotFoundError:
+            # `ensure_mapping` includes index creation.
+            ensure_mapping()
+            result = method(*args, **kwargs)
+        return result
+    return index_required_wrapper
+
+
+def _do_create_or_update_index(id_, body):
+    return es.index(index=ES_INDEX, doc_type=ES_DOC_TYPE, id=id_, body=body)
+
+
+@index_required
 def create_or_update_index(id_, body):
-    response = es.index(index=ES_INDEX, doc_type=ES_DOC_TYPE, id=id_, body=body)
+    response = _do_create_or_update_index(id_, body)
     return response['result']
 
 
+@index_required
 def delete_from_index(id_):
     response = es.delete(index=ES_INDEX, doc_type=ES_DOC_TYPE, id=id_)
     return response['result']
 
 
-def scroll(scroll_id):
-    try:
-        response = es.scroll(scroll_id=scroll_id, scroll='1m')
-    except Exception as exc:
-        return None
-    else:
-        return response
-
-
+@index_required
 def search(query, scroll=False):
     try:
         if scroll:
@@ -251,6 +264,16 @@ def search(query, scroll=False):
         return response
 
 
+@index_required
+def scroll(scroll_id):
+    try:
+        response = es.scroll(scroll_id=scroll_id, scroll='1m')
+    except Exception as exc:
+        return None
+    else:
+        return response
+
+
 def search_id(id_):
     query = {'query': {'match' : {'_id': id_}}}
     res = search(query)
@@ -267,6 +290,7 @@ def return_all(size=100):
     return search({"query": {"match_all": {}}, 'size': size})
 
 
+@index_required
 def termvectors(_id, **kwargs):
     return es.termvectors(
         index=ES_INDEX,
@@ -274,6 +298,7 @@ def termvectors(_id, **kwargs):
         id=_id,
         **kwargs
         )
+
 
 def delete_index(index_name):
     response = es.indices.delete(index=index_name, ignore=[400, 404])
@@ -322,6 +347,7 @@ def get_coords(rec):
     return []
 
 
+@index_required
 def analyze_text(text, lang='en'):
     analyzers = {
         'en': 'english',
@@ -351,6 +377,8 @@ def clean_tweet_text(text):
 
 
 def tokenize(text, lang='en'):
+    # TODO:
+    #     - remove adverbs, prepositions, etc.
     text = clean_tweet_text(text)
     tokens = analyze_text(text, lang)
 
@@ -364,7 +392,4 @@ def tokenize(text, lang='en'):
         if (t.lower().strip() not in not_allowed)
         and (len(t.lower().strip()) > 1)
         ]
-
-    # TODO:
-    #     - remove adverbs, prepositions, etc.
     return tokens

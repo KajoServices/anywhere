@@ -1,3 +1,5 @@
+# WARNING! Legacy module!
+
 import os
 import sys
 import json

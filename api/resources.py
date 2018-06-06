@@ -91,8 +91,7 @@ class TweetResource(Resource):
         return bundle
 
     def obj_create(self, bundle, **kwargs):
-        object_list = [bundle.data]
-        self.authorized_create_detail(object_list, bundle)
+        self.authorized_create_detail([bundle.data], bundle)
         bundle = self.normalize_object(bundle)
         try:
             result = create_or_update_index(bundle.obj.pk, bundle.obj)
@@ -107,7 +106,7 @@ class TweetResource(Resource):
         return bundle
 
     def obj_delete(self, bundle, **kwargs):
-        self.authorized_delete_detail(self.get_object_list(bundle.request), bundle)
+        self.authorized_delete_detail([bundle.data], bundle)
         try:
             delete_from_index(kwargs['pk'])
         except Exception as err:
