@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% load wagtailcore_tags %}
+
+{% block body_class %}template-homepage{% endblock %}
+
+{% block content %}
+
+<header class="  hasform">
+  <div class="row nice-padding">
+    <div class="left">
+      <div class="col header-title">
+        <h1 class="icon icon-">
+          {{ page.title }}
+        </h1>
+      </div>
+    </div>
+    <div class="right">
+      Anywhere
+    </div>
+  </div>
+</header>
+
+<div class="row nice-padding">
+
+  <div class="left">
+    <h2>
+      Filters
+    </h2>
+    {{ page.time_range_text }}
+    {{ page.date_from }}
+    {{ page.lang }}
+    {{ page.country }}
+    {{ page.flood_prob_threshold }}
+  </div>
+
+  <div class="right">
+    {{ page.histo }}
+  </div>
+</div>
+
+<div class="row nice-padding">
+  <div class="left">
+    {{ page.graph }}
+  </div>
+</div>
+
+<div class="row nice-padding">
+  <div class="left">
+    {{ page.tweets }}
+  </div>
+</div>
+
+{% endblock %}
