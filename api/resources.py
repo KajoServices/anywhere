@@ -31,7 +31,6 @@ QUERY_TERMS = [
 DATE_FILTERS = ('exact', 'lt', 'lte', 'gte', 'gt', 'ne')
 TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
 TS_LT = settings.ES_TIMESTAMP_FIELD + '__lte'
-MAX_SIZE = 10000
 
 
 def avg_coords(rec):
@@ -346,7 +345,7 @@ class TweetResource(Resource):
                     "filter": geo_filter
                     }
                 },
-            "size": MAX_SIZE
+            "size": settings.ES_MAX_RESULTS
             }
 
         # XXX add timestamp_range to 'filter'
