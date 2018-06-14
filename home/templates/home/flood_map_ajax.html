@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="col-6 hasform">
+  <div class="row nice-padding">
+    <div class="left">
+      <div class="col header-title">
+        <h1 class="icon">
+          SUBS: title
+        </h1>
+      </div>
+    </div>
+    <div class="right">
+      Anywhere
+    </div>
+  </div>
+</header>
+
+<div class="row nice-padding">
+  <div class="left">
+    <form class="base-ajax-form" method="POST" data-url="{{ request.build_absolute_uri|safe }}">
+    {% csrf_token %}
+    {{ form.as_p|safe }}
+    <p><input class="btn btn-dedfault" type="submit" value="Filter"></p>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+$(document).ready(function(){
+    var $baseForm = $('.base-ajax-form')
+    $baseForm.submit(function(event){
+        event.preventDefault()
+        var $formData = $(this).serialize()
+        var $thisURL = $baseForm.attr('data-url') || window.location.href // or set your own url
+        console.log($formData)
+        $.ajax({
+            method: "POST",
+            url: $thisURL,
+            data: $formData,
+            success: handleFormSuccess,
+            error: handleFormError,
+        })
+    })
+
+    function handleFormSuccess(data, textStatus, jqXHR){
+        console.log(data)
+        console.log(textStatus)
+        console.log(jqXHR)
+        $baseForm.reset(); // reset form data
+    }
+
+    function handleFormError(jqXHR, textStatus, errorThrown){
+        console.log(jqXHR)
+        console.log(textStatus)
+        console.log(errorThrown)
+    }
+})
+</script>
+{% endblock %}

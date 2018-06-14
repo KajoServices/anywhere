@@ -1,19 +1,16 @@
 import re
 
+from django.conf import settings
+
 from elasticsearch import Elasticsearch, NotFoundError
 
 import settings.base as conf
 from core.utils import get_val_by_path
 
 
-ES_INDEX = conf.ES_INDEX
-ES_DOC_TYPE = conf.ES_DOC_TYPE
 es = Elasticsearch(
-    [conf.ES_ADDRESS],
-    port=conf.ES_PORT,
-    timeout=30,
-    max_retries=10,
-    retry_on_timeout=True
+    [settings.ES_ADDRESS], port=conf.ES_PORT,
+    timeout=30, max_retries=10, retry_on_timeout=True
     )
 
 ES_INDEX_MAPPING = {
@@ -185,25 +182,27 @@ ES_INDEX_MAPPING = {
 
 
 def create_index(mapping):
-    response = es.indices.create(index=ES_INDEX, body=mapping)
+    response = es.indices.create(index=settings.ES_INDEX, body=mapping)
     return response
 
 
 def put_mapping(body):
     response = es.indices.put_mapping(
-        index=ES_INDEX, doc_type=ES_DOC_TYPE, body=body
+        index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE, body=body
         )
     return response
 
 
 def ensure_mapping():
-    body = {'mappings': {ES_DOC_TYPE: ES_INDEX_MAPPING}}
+    body = {'mappings': {settings.ES_DOC_TYPE: ES_INDEX_MAPPING}}
     try:
-        mapping = es.indices.get_mapping(index=ES_INDEX, doc_type=ES_DOC_TYPE)
+        mapping = es.indices.get_mapping(
+            index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE
+            )
     except NotFoundError:
         mapping = create_index(body)
     else:
-        if mapping[ES_INDEX] != body:
+        if mapping[settings.ES_INDEX] != body:
             try:
                 mapping = put_mapping(ES_INDEX_MAPPING)
             except Exception as err:
@@ -227,7 +226,10 @@ def index_required(method):
 
 
 def _do_create_or_update_index(id_, body):
-    return es.index(index=ES_INDEX, doc_type=ES_DOC_TYPE, id=id_, body=body)
+    return es.index(
+        index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE,
+        id=id_, body=body
+        )
 
 
 @index_required
@@ -238,7 +240,9 @@ def create_or_update_index(id_, body):
 
 @index_required
 def delete_from_index(id_):
-    response = es.delete(index=ES_INDEX, doc_type=ES_DOC_TYPE, id=id_)
+    response = es.delete(
+        index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE, id=id_
+        )
     return response['result']
 
 
@@ -247,15 +251,12 @@ def search(query, scroll=False):
     try:
         if scroll:
             response = es.search(
-                index=ES_INDEX,
-                doc_type=ES_DOC_TYPE,
-                body=query,
-                scroll='1m'
+                index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE,
+                body=query, scroll='1m'
                 )
         else:
             response = es.search(
-                index=ES_INDEX,
-                doc_type=ES_DOC_TYPE,
+                index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE,
                 body=query
                 )
     except NotFoundError:
@@ -293,10 +294,8 @@ def return_all(size=100):
 @index_required
 def termvectors(_id, **kwargs):
     return es.termvectors(
-        index=ES_INDEX,
-        doc_type=ES_DOC_TYPE,
-        id=_id,
-        **kwargs
+        index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE,
+        id=_id, **kwargs
         )
 
 
@@ -364,7 +363,7 @@ def analyze_text(text, lang='en'):
         'analyzer' : analyzer,
         'text' : text
         }
-    resp = es.indices.analyze(ES_INDEX, body=body)
+    resp = es.indices.analyze(settings.ES_INDEX, body=body)
     return [x['token'] for x in resp['tokens']]
 
 

@@ -25,12 +25,9 @@ INSTALLED_APPS = [
     'django.contrib.gis',
     'django_extensions',
 
-    'home',
-    'search',
-
-    'wagtail.contrib.forms',
     'wagtail.contrib.redirects',
     'wagtail.contrib.styleguide',
+    'wagtail.contrib.forms',
     'wagtail.embeds',
     'wagtail.sites',
     'wagtail.users',
@@ -51,6 +48,7 @@ INSTALLED_APPS = [
     'analytics',
     'dataman',
     'api',
+    'browser',
 ]
 
 MIDDLEWARE = [
@@ -73,6 +71,7 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
             rel('templates'),
+            rel('home', 'templates', 'home'),
         ],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -251,6 +250,9 @@ LOGGING = {
 
 # Elasticsearch
 # number of document in a batch for scroll.
+ES_INDEX = 'anywhere_v1'
+ES_DOC_TYPE = 'tweet'
+ES_TIMESTAMP_FIELD = 'created_at'
 ES_SCROLL_BATCHSIZE = 5000
 
 
