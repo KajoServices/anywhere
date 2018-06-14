@@ -1,12 +1,8 @@
 """
 Adding Twitter posts to index in ES.
 """
-import sys
-import os
 import optparse
 import json
-
-sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../'))
 
 from dataman.normalizer import TweetNormalizer
 from dataman.elastic import ensure_mapping, create_or_update_index

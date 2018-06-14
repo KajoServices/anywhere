@@ -31,6 +31,16 @@ QUERY_TERMS = [
 DATE_FILTERS = ('exact', 'lt', 'lte', 'gte', 'gt', 'ne')
 TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
 TS_LT = settings.ES_TIMESTAMP_FIELD + '__lte'
+MAX_SIZE = 10000
+
+
+def avg_coords(rec):
+    _lng, _lat = 0, 0
+    count = len(rec)
+    for each in rec:
+        _lng += rec[each]['lon']
+        _lat += rec[each]['lat']
+    return [_lng*1.0/count, _lat*1.0/count]
 
 
 def build_timestamp_filters(filters):
@@ -240,6 +250,66 @@ class TweetResource(Resource):
             qs_filters[qs_filter] = value
         return dict_strip_unicode_keys(qs_filters)
 
+    def dehydrate(self, bundle):
+        bundle = super().dehydrate(bundle)
+        if bundle.request.method == 'GET':
+            bundle.data.update(bundle.obj)
+        return bundle
+
+    def get_hotspots(self, ids):
+        body = {
+            "query": {
+                "terms": {
+                    "tweetid": ids
+                    }
+                },
+            "aggregations": {
+                "geo_hotspots": {
+                    "geohash_grid": {
+                        "field": "location",
+                        "precision": settings.HOTSPOTS_PRECISION,
+                        "size": settings.HOTSPOTS_MAX_NUMBER,
+                        },
+                    "aggs": {
+                        "cell": {
+                            "geo_bounds": {
+                                "field": "location"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        res = search(body)
+        try:
+            buckets = res['aggregations']['geo_hotspots']['buckets']
+        except Exception as err:
+            return 'ERROR retrieving hotspots. %s: %s' % (type(err), str(err))
+
+        buckets = [b for b in buckets
+                   if int(b['doc_count']) >= settings.HOTSPOT_MIN_ENTRIES]
+        buckets = sorted(buckets, key=lambda x: x['doc_count'], reverse=True)
+        buckets = buckets[:settings.HOTSPOTS_MAX_NUMBER]
+        _comp = lambda x: dict((b['key'], b['doc_count']) for b in x['buckets'])
+        for buck in buckets:
+            buck['location'] = avg_coords(buck['cell']['bounds'])
+            del buck['cell']
+        return buckets
+
+    def alter_list_data_to_serialize(self, request, data):
+        """
+        A hook to alter list data just before it gets serialized & sent to the user.
+
+        Useful for restructuring/renaming aspects of the what's going to be
+        sent.
+
+        Should accommodate for a list of objects, generally also including
+        meta data.
+        """
+        hotspots = self.get_hotspots([x.obj.tweetid for x in data['objects']])
+        data.update(hotspots=hotspots)
+        return data
+
     def apply_filters(self, request, filters):
         timestamp_range = {}
         if TS_GTE in filters:
@@ -256,12 +326,12 @@ class TweetResource(Resource):
             "geo_bounding_box": {
                 "location": {
                     "top_left" : {
-                        "lat": filters["top_left_lat"],
-                        "lon": filters["top_left_lon"]
+                        "lat": float(filters["top_left_lat"]),
+                        "lon": float(filters["top_left_lon"])
                         },
                     "bottom_right" : {
-                        "lat": filters["bottom_right_lat"],
-                        "lon": filters["bottom_right_lon"]
+                        "lat": float(filters["bottom_right_lat"]),
+                        "lon": float(filters["bottom_right_lon"])
                         }
                     }
                 }
@@ -275,18 +345,21 @@ class TweetResource(Resource):
                         },
                     "filter": geo_filter
                     }
-                }
+                },
+            "size": MAX_SIZE
             }
 
         # XXX add timestamp_range to 'filter'
         # body = {
         #     "query": {timestamp_range}
         #     }
+
         result = []
         for hit in search(body)['hits']['hits']:
             obj = RecordDict(**hit['_source'])
             obj.update({'score': hit['_score']})
             result.append(obj)
+
         return result
 
     def obj_get_list(self, bundle, **kwargs):
@@ -301,8 +374,10 @@ class TweetResource(Resource):
         except Exception as err:
             raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
 
-        # re-write this entirely for ES!
+        # re-write this entirely for ES:
+        #
         # applicable_filters = self.build_filters(filters=filters)
+        #
         try:
             objects = self.apply_filters(bundle.request, filters)
         except ValueError:

@@ -256,6 +256,12 @@ ES_TIMESTAMP_FIELD = 'created_at'
 ES_SCROLL_BATCHSIZE = 5000
 
 
+# Hotspots on the map
+HOTSPOT_MIN_ENTRIES = 2
+HOTSPOTS_MAX_NUMBER = 20
+HOTSPOTS_PRECISION = 5
+
+
 # Celery
 CELERY_ACCEPT_CONTENT = ['application/json', 'pickle']
 
