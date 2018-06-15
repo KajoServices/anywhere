@@ -42,7 +42,29 @@ def avg_coords(rec):
     return [_lng*1.0/count, _lat*1.0/count]
 
 
-def build_timestamp_filters(filters):
+def build_filters_spatial(filters):
+    allow_keys = [
+        'top_left_lon', 'top_left_lat', 'bottom_right_lon', 'bottom_right_lat'
+        ]
+    if not all([k in filters for k in allow_keys]):
+        return {}
+
+    return {
+        "geo_bounding_box": {
+            "location": {
+                "top_left" : {
+                    "lat": float(filters["top_left_lat"]),
+                    "lon": float(filters["top_left_lon"])
+                    },
+                "bottom_right" : {
+                    "lat": float(filters["bottom_right_lat"]),
+                    "lon": float(filters["bottom_right_lon"])
+                    }
+                }
+            }
+        }
+
+def build_filters_temporal(filters):
     """
     Re-defines filters dict, taiking into account custom timestamp
     filters: all keys in `filters` that contain 'timestamp' are
@@ -67,7 +89,6 @@ def build_timestamp_filters(filters):
     result = {}
     for key, val in filters.items():
         if not settings.ES_TIMESTAMP_FIELD in key:
-            result[key] = val
             continue
 
         if '__' in key:
@@ -91,7 +112,16 @@ def build_timestamp_filters(filters):
         else:
             # The same as {ES_TIMESTAMP_FIELD}__exact.
             result.update(filter_exact(val))
-    return result
+
+    timestamp_range = {}
+    if TS_GTE in filters:
+        timestamp_range.update({"gte": result[TS_GTE]})
+    if TS_LT in filters:
+        timestamp_range.update({"gte": result[TS_LT]})
+    if timestamp_range:
+        timestamp_range = {"range": {"created_at": timestamp_range}}
+
+    return timestamp_range
 
 
 class EdgeBundleResource(Resource):
@@ -158,6 +188,10 @@ class TweetResource(Resource):
             'top_right_lng': ('exact',),
             'top_right_lat': ('exact',),
             'created_at': DATE_FILTERS,
+            'flood_probability': ('gte',),
+            'lang': ('exact',),
+            'country': ('exact',),
+            'search': ('exact',),
             }
         ordering = [settings.ES_TIMESTAMP_FIELD]
         authorization = StaffAuthorization()
@@ -217,37 +251,6 @@ class TweetResource(Resource):
                 "The '%s' field has no 'attribute' for searching with." % field_name
                 )
         return [self.fields[field_name].attribute]
-
-    def build_filters(self, filters=None, ignore_bad_filters=True):
-        if filters is None:
-            filters = {}
-        qs_filters = {}
-        for filter_expr, value in filters.items():
-            filter_bits = filter_expr.split(LOOKUP_SEP)
-            field_name = filter_bits.pop(0)
-            filter_type = 'iexact'
-            if field_name not in self.fields:
-                continue
-
-            if len(filter_bits) and filter_bits[-1] in QUERY_TERMS:
-                filter_type = filter_bits.pop()
-            try:
-                lookup_bits = self.check_filtering(
-                    field_name, filter_type, filter_bits
-                    )
-            except InvalidFilterError:
-                if ignore_bad_filters:
-                    continue
-                else:
-                    raise
-
-            value = self.filter_value_to_python(
-                value, field_name, filters, filter_expr, filter_type
-                )
-            db_field_name = LOOKUP_SEP.join(lookup_bits)
-            qs_filter = '%s%s%s' % (db_field_name, LOOKUP_SEP, filter_type)
-            qs_filters[qs_filter] = value
-        return dict_strip_unicode_keys(qs_filters)
 
     def dehydrate(self, bundle):
         bundle = super().dehydrate(bundle)
@@ -309,50 +312,32 @@ class TweetResource(Resource):
         data.update(hotspots=hotspots)
         return data
 
-    def apply_filters(self, request, filters):
-        timestamp_range = {}
-        if TS_GTE in filters:
-            timestamp_range.update({"gte": filters[TS_GTE]})
-        if TS_LT in filters:
-            timestamp_range.update({"gte": filters[TS_LT]})
-        if timestamp_range:
-            timestamp_range = {"range": {"created_at": timestamp_range}}
-
-        # geo_filter_keys = ['upper_left_lon', 'upper_left_lat',
-        #                    'lower_right_lon', 'lower_right_lat']
-        # if all([k in filters for k in geo_filter_keys]):
-        geo_filter = {
-            "geo_bounding_box": {
-                "location": {
-                    "top_left" : {
-                        "lat": float(filters["top_left_lat"]),
-                        "lon": float(filters["top_left_lon"])
-                        },
-                    "bottom_right" : {
-                        "lat": float(filters["bottom_right_lat"]),
-                        "lon": float(filters["bottom_right_lon"])
-                        }
-                    }
-                }
-            }
-
+    def apply_filters(self, request, match=None, filters=None):
+        """
+        :param:applicable_filters - dict in the form
+            {"bool": {"must" : [{filter_1}, {filter_2}, ...]}}
+        """
+        if match is None:
+            match = {"match_all": {}}
+        if filters is None:
+            filters = {}
         body = {
             "query": {
                 "bool" : {
-                    "must" : {
-                        "match_all": {}
-                        },
-                    "filter": geo_filter
+                    "must": match,
+                    "filter": filters
                     }
                 },
-            "size": settings.ES_MAX_RESULTS
+            "sort": [
+                # XXX alternate between those edpending on the presence of 'search=' param
+                {
+                    settings.ES_TIMESTAMP_FIELD: {"order" : "desc"}
+                    },
+                {
+                    "_score": {"order" : "desc"}
+                    },
+                ],
             }
-
-        # XXX add timestamp_range to 'filter'
-        # body = {
-        #     "query": {timestamp_range}
-        #     }
-
         result = []
         for hit in search(body)['hits']['hits']:
             obj = RecordDict(**hit['_source'])
@@ -361,24 +346,31 @@ class TweetResource(Resource):
 
         return result
 
+    def build_query(self, filters):
+        # XXX finish it!
+        return {"match_all": {}}
+
+    def build_filters(self, filters=None, ignore_bad_filters=True):
+        if filters is None:
+            return {}
+
+        es_filters = []
+        es_filters.append(build_filters_spatial(filters))
+        es_filters.append(build_filters_temporal(filters))
+        return {"bool": {"must" : es_filters}}
+
     def obj_get_list(self, bundle, **kwargs):
         filters = {}
         self.messages = dict((x, []) for x in MSG_KEYS)
         if hasattr(bundle.request, 'GET'):
             filters = bundle.request.GET.dict()
         filters.update(kwargs)
-
+        match_query = self.build_query(filters=filters)
+        applicable_filters = self.build_filters(filters=filters)
         try:
-            filters = build_timestamp_filters(filters)
-        except Exception as err:
-            raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
-
-        # re-write this entirely for ES:
-        #
-        # applicable_filters = self.build_filters(filters=filters)
-        #
-        try:
-            objects = self.apply_filters(bundle.request, filters)
+            objects = self.apply_filters(
+                bundle.request, match_query, applicable_filters
+                )
         except ValueError:
             raise ImmediateHttpResponse(response=http.HttpBadRequest(
                 "Invalid resource lookup data provided (mismatched type)."

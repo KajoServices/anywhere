@@ -1,10 +1,14 @@
 import time
+import random
 import dpath.util
 import collections
+from string import ascii_lowercase, digits
 
 from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+
+CHARS = ascii_lowercase + digits
 
 
 class RecordDict(dict):
@@ -43,6 +47,13 @@ def timeit(method):
             time_sec * 1000))
         return result
     return timeit_wrapper
+
+
+def rand_string(size=6):
+    """
+    Generates quazi-unique sequence from random digits and letters.
+    """
+    return ''.join(random.choice(CHARS) for x in range(size))
 
 
 def get_val_by_path(*args, **kwargs):
