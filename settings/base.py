@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 
     'wagtail.core.middleware.SiteMiddleware',
     'wagtail.contrib.redirects.middleware.RedirectMiddleware',
@@ -269,30 +270,6 @@ CELERY_ACCEPT_CONTENT = ['application/json', 'pickle']
 
 # World borders file
 WORLD_BORDERS = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
-
-
-# CORS settings
-CORS_ORIGIN_ALLOW_ALL = True
-CORS_ALLOW_METHODS = (
-    'DELETE',
-    'GET',
-    'PATCH',
-    'POST',
-    'PUT',
-    'OPTIONS'
-    )
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = (
-    'x-requested-with',
-    'X-HTTP-Method-Override',
-    'content-type',
-    'accept',
-    'origin',
-    'user-agent',
-    'authorization',
-    'x-csrftoken',
-)
-CORS_PREFLIGHT_MAX_AGE = 86400
 
 
 # API settings
