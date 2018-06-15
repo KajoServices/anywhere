@@ -18,7 +18,7 @@ from analytics.collectors.semantic import get_graph
 from dataman.normalizer import TweetNormalizer
 from dataman.elastic import search, create_or_update_index, delete_from_index
 from core.utils import RecordDict, get_parsed_datetime, \
-     localize_timestamp, convert_time_range
+     localize_timestamp, convert_time_range, flatten_list
 
 
 LOG = logging.getLogger('tweet')
@@ -31,6 +31,9 @@ QUERY_TERMS = [
 DATE_FILTERS = ('exact', 'lt', 'lte', 'gte', 'gt', 'ne')
 TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
 TS_LT = settings.ES_TIMESTAMP_FIELD + '__lte'
+GEO_FIELDS = [
+    'top_left_lon', 'top_left_lat', 'bottom_right_lon', 'bottom_right_lat'
+    ]
 
 
 def avg_coords(rec):
@@ -42,11 +45,8 @@ def avg_coords(rec):
     return [_lng*1.0/count, _lat*1.0/count]
 
 
-def build_filters_spatial(filters):
-    allow_keys = [
-        'top_left_lon', 'top_left_lat', 'bottom_right_lon', 'bottom_right_lat'
-        ]
-    if not all([k in filters for k in allow_keys]):
+def build_filters_geo(filters):
+    if not all([k in filters for k in GEO_FIELDS]):
         return {}
 
     return {
@@ -64,7 +64,7 @@ def build_filters_spatial(filters):
             }
         }
 
-def build_filters_temporal(filters):
+def build_filters_time(filters):
     """
     Re-defines filters dict, taiking into account custom timestamp
     filters: all keys in `filters` that contain 'timestamp' are
@@ -115,13 +115,54 @@ def build_filters_temporal(filters):
 
     timestamp_range = {}
     if TS_GTE in filters:
-        timestamp_range.update({"gte": result[TS_GTE]})
+        timestamp_range.update({"gte": result[TS_GTE].isoformat()})
     if TS_LT in filters:
-        timestamp_range.update({"gte": result[TS_LT]})
+        timestamp_range.update({"lt": result[TS_LT].isoformat()})
     if timestamp_range:
         timestamp_range = {"range": {"created_at": timestamp_range}}
 
     return timestamp_range
+
+
+def get_hotspots(ids):
+    body = {
+        "query": {
+            "terms": {
+                "tweetid": ids
+                }
+            },
+        "aggregations": {
+            "geo_hotspots": {
+                "geohash_grid": {
+                    "field": "location",
+                    "precision": settings.HOTSPOTS_PRECISION,
+                    "size": settings.HOTSPOTS_MAX_NUMBER,
+                    },
+                "aggs": {
+                    "cell": {
+                        "geo_bounds": {
+                            "field": "location"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    res = search(body)
+    try:
+        buckets = res['aggregations']['geo_hotspots']['buckets']
+    except Exception as err:
+        return 'ERROR retrieving hotspots. %s: %s' % (type(err), str(err))
+
+    buckets = [b for b in buckets
+               if int(b['doc_count']) >= settings.HOTSPOT_MIN_ENTRIES]
+    buckets = sorted(buckets, key=lambda x: x['doc_count'], reverse=True)
+    buckets = buckets[:settings.HOTSPOTS_MAX_NUMBER]
+    _comp = lambda x: dict((b['key'], b['doc_count']) for b in x['buckets'])
+    for buck in buckets:
+        buck['location'] = avg_coords(buck['cell']['bounds'])
+        del buck['cell']
+    return buckets
 
 
 class EdgeBundleResource(Resource):
@@ -168,6 +209,9 @@ class EdgeBundleResource(Resource):
         return data
 
 
+# TODO
+# Right now self.fields optimised for POST. Re-factor it for GET
+# (less headache with filtering and hydrate)
 class TweetResource(Resource):
     tweetid = fields.CharField()
     created_at = fields.DateTimeField()
@@ -183,11 +227,6 @@ class TweetResource(Resource):
         detail_allowed_methods = ['get', 'post', 'delete']
         detail_uri_name = 'tweetid'
         filtering = {
-            'bottom_left_lng': ('exact',),
-            'bottom_left_lat': ('exact',),
-            'top_right_lng': ('exact',),
-            'top_right_lat': ('exact',),
-            'created_at': DATE_FILTERS,
             'flood_probability': ('gte',),
             'lang': ('exact',),
             'country': ('exact',),
@@ -258,69 +297,39 @@ class TweetResource(Resource):
             bundle.data.update(bundle.obj)
         return bundle
 
-    def get_hotspots(self, ids):
-        body = {
-            "query": {
-                "terms": {
-                    "tweetid": ids
-                    }
-                },
-            "aggregations": {
-                "geo_hotspots": {
-                    "geohash_grid": {
-                        "field": "location",
-                        "precision": settings.HOTSPOTS_PRECISION,
-                        "size": settings.HOTSPOTS_MAX_NUMBER,
-                        },
-                    "aggs": {
-                        "cell": {
-                            "geo_bounds": {
-                                "field": "location"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        res = search(body)
-        try:
-            buckets = res['aggregations']['geo_hotspots']['buckets']
-        except Exception as err:
-            return 'ERROR retrieving hotspots. %s: %s' % (type(err), str(err))
-
-        buckets = [b for b in buckets
-                   if int(b['doc_count']) >= settings.HOTSPOT_MIN_ENTRIES]
-        buckets = sorted(buckets, key=lambda x: x['doc_count'], reverse=True)
-        buckets = buckets[:settings.HOTSPOTS_MAX_NUMBER]
-        _comp = lambda x: dict((b['key'], b['doc_count']) for b in x['buckets'])
-        for buck in buckets:
-            buck['location'] = avg_coords(buck['cell']['bounds'])
-            del buck['cell']
-        return buckets
-
     def alter_list_data_to_serialize(self, request, data):
         """
-        A hook to alter list data just before it gets serialized & sent to the user.
-
-        Useful for restructuring/renaming aspects of the what's going to be
-        sent.
-
-        Should accommodate for a list of objects, generally also including
-        meta data.
+        Add hotspots to the list of returned results after pagination.
         """
-        hotspots = self.get_hotspots([x.obj.tweetid for x in data['objects']])
+        hotspots = get_hotspots([x.obj.tweetid for x in data['objects']])
         data.update(hotspots=hotspots)
         return data
 
-    def apply_filters(self, request, match=None, filters=None):
+    def apply_filters(self, request, match=None, filters=None, sort=None):
         """
         :param:applicable_filters - dict in the form
             {"bool": {"must" : [{filter_1}, {filter_2}, ...]}}
         """
-        if match is None:
-            match = {"match_all": {}}
         if filters is None:
             filters = {}
+
+        if sort is None:
+            sort = []
+
+        # `match` defines sorting order:
+        # - if there is search, sort only by _score (relevant tweets at the top)
+        # - otherwise add timestamp to the end of list (will be default if sort
+        #   isn't specified)
+        if match is None:
+            match = {"match_all": {}}
+            sort_keys = flatten_list([x.keys() for x in sort])
+            if settings.ES_TIMESTAMP_FIELD not in sort_keys:
+                sort.append({
+                    settings.ES_TIMESTAMP_FIELD: {"order" : "desc"}
+                    })
+        else:
+            sort = [{"_score": {"order" : "desc"}}]
+
         body = {
             "query": {
                 "bool" : {
@@ -328,16 +337,10 @@ class TweetResource(Resource):
                     "filter": filters
                     }
                 },
-            "sort": [
-                # XXX alternate between those edpending on the presence of 'search=' param
-                {
-                    settings.ES_TIMESTAMP_FIELD: {"order" : "desc"}
-                    },
-                {
-                    "_score": {"order" : "desc"}
-                    },
-                ],
+            "sort": sort,
+            'size': settings.ES_MAX_RESULTS
             }
+
         result = []
         for hit in search(body)['hits']['hits']:
             obj = RecordDict(**hit['_source'])
@@ -355,9 +358,45 @@ class TweetResource(Resource):
             return {}
 
         es_filters = []
-        es_filters.append(build_filters_spatial(filters))
-        es_filters.append(build_filters_temporal(filters))
-        return {"bool": {"must" : es_filters}}
+
+        filters_geo = build_filters_geo(filters)
+        if filters_geo:
+            es_filters.append(filters_geo)
+
+        filters_time = build_filters_time(filters)
+        if filters_time:
+            es_filters.append(filters_time)
+
+        for filter_expr, value in filters.items():
+            filter_bits = filter_expr.split(LOOKUP_SEP)
+            field_name = filter_bits.pop(0)
+
+            # Ignore fields we know nothing about.
+            if field_name not in self._meta.filtering:
+                continue
+
+            # Ignore fields used for geo and time filtering
+            # (this is taken care of separately).
+            if (field_name in GEO_FIELDS) or (field_name == settings.ES_TIMESTAMP_FIELD):
+                continue
+
+            if len(filter_bits) and filter_bits[-1] in QUERY_TERMS:
+                filter_type = filter_bits.pop()
+                es_filters.append({
+                    "range": {
+                        field_name: {
+                            filter_type: value
+                            }
+                        }
+                    })
+            else:
+                es_filters.append({
+                    "term": {
+                        field_name: value
+                        }
+                    })
+
+        return {"bool": {"must": es_filters}}
 
     def obj_get_list(self, bundle, **kwargs):
         filters = {}

@@ -75,6 +75,10 @@ def get_val_by_path(*args, **kwargs):
     return ''
 
 
+def flatten_list(list_):
+    return [item for sublist in list_ for item in sublist]
+
+
 def flatten_dict(dict_, parent_key='', separator='_'):
     items = []
     for key, val in dict_.items():
