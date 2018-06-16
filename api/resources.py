@@ -210,8 +210,11 @@ class EdgeBundleResource(Resource):
 
 
 # TODO
-# Right now self.fields optimised for POST. Re-factor it for GET
-# (less headache with filtering and hydrate)
+# * self.fields is optimised for POST now. Re-factor it for GET
+#   (less headache with filtering and hydrate)
+# * use ES pagination - see
+#   https://www.elastic.co/guide/en/elasticsearch/reference/6.1/search-request-from-size.html
+# * `tokens` should include synonyms
 class TweetResource(Resource):
     tweetid = fields.CharField()
     created_at = fields.DateTimeField()
@@ -230,7 +233,6 @@ class TweetResource(Resource):
             'flood_probability': ('gte',),
             'lang': ('exact',),
             'country': ('exact',),
-            'search': ('exact',),
             }
         ordering = [settings.ES_TIMESTAMP_FIELD]
         authorization = StaffAuthorization()
@@ -350,8 +352,19 @@ class TweetResource(Resource):
         return result
 
     def build_query(self, filters):
-        # XXX finish it!
-        return {"match_all": {}}
+        query = filters.get("search", None)
+        if query is None:
+            return {"match_all": {}}
+
+        return {
+            "multi_match": {
+                "query": query,
+                "fields": [
+                    "text", "tokens", "place", "user_name",
+                    "user_location", "user_description",
+                    ]
+                }
+            }
 
     def build_filters(self, filters=None, ignore_bad_filters=True):
         if filters is None:
@@ -375,11 +388,6 @@ class TweetResource(Resource):
             if field_name not in self._meta.filtering:
                 continue
 
-            # Ignore fields used for geo and time filtering
-            # (this is taken care of separately).
-            if (field_name in GEO_FIELDS) or (field_name == settings.ES_TIMESTAMP_FIELD):
-                continue
-
             if len(filter_bits) and filter_bits[-1] in QUERY_TERMS:
                 filter_type = filter_bits.pop()
                 es_filters.append({
@@ -398,17 +406,22 @@ class TweetResource(Resource):
 
         return {"bool": {"must": es_filters}}
 
+    def get_sort_order(self, filters):
+        return [] # XXX finish it!
+
     def obj_get_list(self, bundle, **kwargs):
         filters = {}
         self.messages = dict((x, []) for x in MSG_KEYS)
         if hasattr(bundle.request, 'GET'):
             filters = bundle.request.GET.dict()
         filters.update(kwargs)
+
         match_query = self.build_query(filters=filters)
         applicable_filters = self.build_filters(filters=filters)
+        sort_order = self.get_sort_order(filters=filters)
         try:
             objects = self.apply_filters(
-                bundle.request, match_query, applicable_filters
+                bundle.request, match_query, applicable_filters, sort_order
                 )
         except ValueError:
             raise ImmediateHttpResponse(response=http.HttpBadRequest(
