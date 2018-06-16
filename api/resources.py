@@ -8,7 +8,8 @@ from django.db.models.constants import LOOKUP_SEP
 from tastypie.resources import Resource
 from tastypie.authorization import Authorization
 from tastypie.authentication import Authentication, ApiKeyAuthentication
-from tastypie.exceptions import ImmediateHttpResponse, InvalidFilterError
+from tastypie.exceptions import ImmediateHttpResponse, InvalidFilterError, \
+     InvalidSortError
 from tastypie.utils import dict_strip_unicode_keys, string_to_python
 from tastypie import fields
 from tastypie import http
@@ -234,7 +235,15 @@ class TweetResource(Resource):
             'lang': ('exact',),
             'country': ('exact',),
             }
-        ordering = [settings.ES_TIMESTAMP_FIELD]
+        ordering = [
+            settings.ES_TIMESTAMP_FIELD,
+            'flood_probability',
+            'country',
+            'lang',
+            'user_lang',
+            'user_name',
+            'user_time_zone',
+            ]
         authorization = StaffAuthorization()
         authentication = ApiKeyAuthentication()
 
@@ -309,29 +318,17 @@ class TweetResource(Resource):
 
     def apply_filters(self, request, match=None, filters=None, sort=None):
         """
-        :param:applicable_filters - dict in the form
+        :param:match - dict, format:
+            {"match_all": {}} (if no search is performed)
+            OR
+            {"multi_match": {"query": query}} (if there is a query)
+
+        :param:filters - dict, format:
             {"bool": {"must" : [{filter_1}, {filter_2}, ...]}}
+
+        :param:sort - list, format:
+            [{"fieldname": {"order": "asc|desc"}}, {...}]
         """
-        if filters is None:
-            filters = {}
-
-        if sort is None:
-            sort = []
-
-        # `match` defines sorting order:
-        # - if there is search, sort only by _score (relevant tweets at the top)
-        # - otherwise add timestamp to the end of list (will be default if sort
-        #   isn't specified)
-        if match is None:
-            match = {"match_all": {}}
-            sort_keys = flatten_list([x.keys() for x in sort])
-            if settings.ES_TIMESTAMP_FIELD not in sort_keys:
-                sort.append({
-                    settings.ES_TIMESTAMP_FIELD: {"order" : "desc"}
-                    })
-        else:
-            sort = [{"_score": {"order" : "desc"}}]
-
         body = {
             "query": {
                 "bool" : {
@@ -342,6 +339,8 @@ class TweetResource(Resource):
             "sort": sort,
             'size': settings.ES_MAX_RESULTS
             }
+        if filters:
+            body["query"]["bool"].update({"filter": filters})
 
         result = []
         for hit in search(body)['hits']['hits']:
@@ -403,11 +402,51 @@ class TweetResource(Resource):
                         field_name: value
                         }
                     })
-
         return {"bool": {"must": es_filters}}
 
-    def get_sort_order(self, filters):
-        return [] # XXX finish it!
+    def get_order_by(self, **kwargs):
+        order_by_request = kwargs.get('order_by', [])
+        if isinstance(order_by_request, str):
+            order_by_request = [order_by_request]
+
+        order_by = []
+        for fieldname in order_by_request:
+            if not isinstance(fieldname, str):
+                continue
+
+            order_by_bits = fieldname.split(LOOKUP_SEP)
+            name = order_by_bits[0]
+            order = {"order": "asc"}
+            if order_by_bits[0].startswith('-'):
+                name = order_by_bits[0][1:]
+                order = {"order": "desc"}
+
+            # XXX un-comment this after re-factoring in favor for GET object structure
+            #
+            # if name not in self.fields:
+            #     # It's not a field we know about. Move along citizen.
+            #     raise InvalidSortError("No matching '%s' field for ordering on." % field_name)
+            if name not in self._meta.ordering:
+                raise InvalidSortError(
+                    "The '%s' field does not allow ordering." % name
+                    )
+            term = '{}.keyword'.format(name)
+            order_by.append({term: order})
+
+        # `search` param defines sorting order:
+        # - if search term is present, sort only by _score (relevant
+        #   tweets at the top)
+        # - otherwise add timestamp to the end of list (will be default
+        #   if sort isn't specified)
+        if kwargs.get('search', False):
+            order_by = [{"_score": {"order": "desc"}}]
+        else:
+            order_keys = flatten_list([x.keys() for x in order_by])
+            if settings.ES_TIMESTAMP_FIELD not in order_keys:
+                order_by.append({
+                    settings.ES_TIMESTAMP_FIELD: {"order" : "desc"}
+                    })
+        return order_by
 
     def obj_get_list(self, bundle, **kwargs):
         filters = {}
@@ -418,10 +457,10 @@ class TweetResource(Resource):
 
         match_query = self.build_query(filters=filters)
         applicable_filters = self.build_filters(filters=filters)
-        sort_order = self.get_sort_order(filters=filters)
+        order_by = self.get_order_by(**filters)
         try:
             objects = self.apply_filters(
-                bundle.request, match_query, applicable_filters, sort_order
+                bundle.request, match_query, applicable_filters, order_by
                 )
         except ValueError:
             raise ImmediateHttpResponse(response=http.HttpBadRequest(
