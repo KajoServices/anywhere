@@ -31,7 +31,7 @@ QUERY_TERMS = [
     ]
 DATE_FILTERS = ('exact', 'lt', 'lte', 'gte', 'gt', 'ne')
 TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
-TS_LT = settings.ES_TIMESTAMP_FIELD + '__lte'
+TS_LTE = settings.ES_TIMESTAMP_FIELD + '__lte'
 GEO_FIELDS = [
     'top_left_lon', 'top_left_lat', 'bottom_right_lon', 'bottom_right_lat'
     ]
@@ -84,7 +84,7 @@ def build_filters_time(filters):
         ts, _ = localize_timestamp(val)
         return {
             TS_GTE: ts,
-            TS_LT: ts + timezone.timedelta(minutes=1)
+            TS_LTE: ts + timezone.timedelta(minutes=1)
             }
 
     result = {}
@@ -109,23 +109,55 @@ def build_filters_time(filters):
             value = get_parsed_datetime(val)
         except TypeError:
             ts_from, ts_to = convert_time_range(val)
-            result.update({TS_GTE: ts_from, TS_LT: ts_to})
+            result.update({TS_GTE: ts_from, TS_LTE: ts_to})
         else:
             # The same as {ES_TIMESTAMP_FIELD}__exact.
             result.update(filter_exact(val))
 
     timestamp_range = {}
-    if TS_GTE in filters:
-        timestamp_range.update({"gte": result[TS_GTE].isoformat()})
-    if TS_LT in filters:
-        timestamp_range.update({"lt": result[TS_LT].isoformat()})
+    for key, val in result.items():
+        name = key.split('__')[1]
+        timestamp_range.update({name: val.isoformat()})
     if timestamp_range:
-        timestamp_range = {"range": {"created_at": timestamp_range}}
+        timestamp_range = {"range": {settings.ES_TIMESTAMP_FIELD: timestamp_range}}
 
     return timestamp_range
 
 
+# XXX bookmark
+def get_time_histogram(interval, match, filters):
+    body = {
+        "query": {
+            "bool" : {
+                "must": match,
+                "filter": filters
+                }
+            },
+        "aggregations": {
+            "timestamp_histo": {
+                "date_histogram" : {
+                    "field": "created_at",
+                    "interval": interval
+                    }
+                }
+            }
+        }
+    res = search(body)
+    try:
+        buckets = res['aggregations']['timestamp_histo']['buckets']
+    except Exception as err:
+        return 'ERROR building histogram. %s: %s' % (type(err), str(err))
+    else:
+        return buckets
+
+
 def get_hotspots(ids):
+    """
+    Quering ES for hotspots - areas of the map with a given radius, where
+    some valuable number of tweets is being accumulated.
+
+    :param: ids - list. Ids of tweets to filter by.
+    """
     body = {
         "query": {
             "terms": {
@@ -170,7 +202,7 @@ class EdgeBundleResource(Resource):
     name = fields.CharField()
     size = fields.IntegerField()
     children = fields.ListField()
-    
+
     class Meta:
         resource_name = 'edge_bundle'
         allowed_methods = ('get',)
@@ -452,7 +484,7 @@ class TweetResource(Resource):
             order_keys = flatten_list([x.keys() for x in order_by])
             if settings.ES_TIMESTAMP_FIELD not in order_keys:
                 order_by.append({
-                    settings.ES_TIMESTAMP_FIELD: {"order" : "desc"}
+                    settings.ES_TIMESTAMP_FIELD: {"order": "desc"}
                     })
         return order_by
 
