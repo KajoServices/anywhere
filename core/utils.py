@@ -2,7 +2,7 @@ import time
 import random
 import collections
 from string import ascii_lowercase, digits
-from datetime import datetime, date, timedelta
+import datetime
 import dpath.util
 import dateparser
 
@@ -187,35 +187,35 @@ def convert_time_range(trange, tz=None):
     # Form time range as a tuple of naive datetimes.
     assert isinstance(trange, str), "Value is not a string: %s" % trange
     trange = trange.strip().lower()
-    _time = lambda d: datetime.combine(d, time())
-    today = date.today()
+    _time = lambda d: datetime.datetime.combine(d, datetime.time())
+    today = datetime.date.today()
     if trange == 'today':
         ts_from = _time(today)
-        ts_to = ts_from + timedelta(days=1, seconds=-1)
+        ts_to = ts_from + datetime.timedelta(days=1, seconds=-1)
     elif trange == 'yesterday':
-        ts_from = _time(today+timedelta(days=-1))
-        ts_to = ts_from + timedelta(days=1, seconds=-1)
+        ts_from = _time(today+datetime.timedelta(days=-1))
+        ts_to = ts_from + datetime.timedelta(days=1, seconds=-1)
     elif trange == 'this week':
-        ts_from = _time(today-timedelta(days=today.weekday()))
-        ts_to = ts_from + timedelta(days=7, seconds=-1)
+        ts_from = _time(today-datetime.timedelta(days=today.weekday()))
+        ts_to = ts_from + datetime.timedelta(days=7, seconds=-1)
     elif trange == 'last week':
-        this_week = _time(today-timedelta(days=today.weekday()))
-        ts_to = this_week + timedelta(seconds=-1)
-        ts_from = _time(ts_to - timedelta(days=ts_to.weekday()))
+        this_week = _time(today-datetime.timedelta(days=today.weekday()))
+        ts_to = this_week + datetime.timedelta(seconds=-1)
+        ts_from = _time(ts_to - datetime.timedelta(days=ts_to.weekday()))
     elif trange == 'this month':
         ts_from = _time(today.replace(day=1))
-        next_month = ts_from.replace(day=28) + timedelta(days=4)
-        this_month_last_day = next_month - timedelta(days=next_month.day)
-        ts_to = this_month_last_day + timedelta(days=1, seconds=-1)
+        next_month = ts_from.replace(day=28) + datetime.timedelta(days=4)
+        this_month_last_day = next_month - datetime.timedelta(days=next_month.day)
+        ts_to = this_month_last_day + datetime.timedelta(days=1, seconds=-1)
     elif trange == 'last month':
-        ts_to = _time(today.replace(day=1)) + timedelta(seconds=-1)
+        ts_to = _time(today.replace(day=1)) + datetime.timedelta(seconds=-1)
         ts_from = _time(ts_to.replace(day=1))
     elif trange == 'this year':
         ts_from = _time(today.replace(month=1, day=1))
         this_year_last_day = _time(today.replace(month=12, day=31))
-        ts_to = this_year_last_day + timedelta(days=1, seconds=-1)
+        ts_to = this_year_last_day + datetime.timedelta(days=1, seconds=-1)
     elif trange == 'last year':
-        ts_to = _time(today.replace(month=1, day=1)) + timedelta(seconds=-1)
+        ts_to = _time(today.replace(month=1, day=1)) + datetime.timedelta(seconds=-1)
         ts_from = _time(ts_to.replace(month=1, day=1))
     else:
         try:
@@ -230,7 +230,7 @@ def convert_time_range(trange, tz=None):
         # Stretch date values (without time) to the end of day
         # (ignore microseconds).
         if ts_to.minute == 0 and ts_to.second == 0:
-            ts_to += timedelta(days=1, seconds=-1)
+            ts_to += datetime.timedelta(days=1, seconds=-1)
 
     # Figure out desired timezone.
     time_zone = get_tz(tz)
