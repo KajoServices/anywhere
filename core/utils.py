@@ -4,12 +4,17 @@ import collections
 from string import ascii_lowercase, digits
 from datetime import datetime, date, timedelta
 import dpath.util
+import dateparser
 
 from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 CHARS = ascii_lowercase + digits
+
+
+class MalformedValueError(Exception):
+    pass
 
 
 class RecordDict(dict):
