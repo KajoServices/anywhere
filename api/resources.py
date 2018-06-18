@@ -244,6 +244,11 @@ class TweetResource(Resource):
             'user_name',
             'user_time_zone',
             ]
+        keywords = [
+            'annotations', 'country', 'lang', 'place', 'resource_uri', 'text',
+            'tokens', 'tweetid', 'user_description', 'user_id', 'user_lang',
+            'user_location', 'user_name', 'user_profile_image_url', 'user_time_zone'
+            ]
         authorization = StaffAuthorization()
         authentication = ApiKeyAuthentication()
 
@@ -424,14 +429,17 @@ class TweetResource(Resource):
             # XXX un-comment this after re-factoring in favor for GET object structure
             #
             # if name not in self.fields:
-            #     # It's not a field we know about. Move along citizen.
+            #     # It's not a field we know about.
             #     raise InvalidSortError("No matching '%s' field for ordering on." % field_name)
             if name not in self._meta.ordering:
                 raise InvalidSortError(
                     "The '%s' field does not allow ordering." % name
                     )
-            term = '{}.keyword'.format(name)
-            order_by.append({term: order})
+
+            # Add .keyword to string fields.
+            if name in self._meta.keywords:
+                name = '{}.keyword'.format(name)
+            order_by.append({name: order})
 
         # `search` param defines sorting order:
         # - if search term is present, sort only by _score (relevant

@@ -182,14 +182,26 @@ class TweetNormalizer(object):
                 )
         place = self.normalized.get('place', None)
         if place is None:
-            # Try to get place from tweet data.
-            place = get_val_by_path(
-                'place',
-                'user/location',
-                'user/derived/locations/locality',
-                **self.original['tweet'])
-            if place:
+            place = self.original['tweet'].get('place', None)
+
+            # Try to get place from tweet data. If it is available,
+            # check the correctness of country, too.
+            if isinstance(place, dict):
+                self.normalized['place'] = place['name']
+                if place['country'] != self.normalized['country']:
+                    self.normalized['country'] = place['country']
+                return
+            elif isinstance(place, str):
                 self.normalized['place'] = place.strip()
+                return
+
+        # Try to get place from user's data.
+        place = get_val_by_path(
+            'user/location',
+            'user/derived/locations/locality',
+            **self.original['tweet'])
+        if place:
+            self.normalized['place'] = place.strip()
 
     def normalize(self, **kwargs):
         """
