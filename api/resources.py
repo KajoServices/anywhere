@@ -348,6 +348,7 @@ class TweetResource(Resource):
     def dehydrate(self, bundle):
         """
         Formats output (bundle.data) to meet GeoJSON.
+        NB: GeoJSON requires [lon, lat].
         """
         bundle = super().dehydrate(bundle)
         if bundle.request.method == 'GET':
@@ -373,8 +374,8 @@ class TweetResource(Resource):
                 "geometry": {
                     "type": "Point",
                     "coordinates": [
-                        bundle.obj.location["lat"],
-                        bundle.obj.location["lon"]
+                        bundle.obj.location["lon"],
+                        bundle.obj.location["lat"]
                         ]
                     },
                 "properties": properties
