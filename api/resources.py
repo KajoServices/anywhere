@@ -106,7 +106,7 @@ def build_filters_time(filters):
 
         # Process '{ES_TIMESTAMP_FIELD}='.
         try:
-            value = get_parsed_datetime(val)
+            _ = get_parsed_datetime(val)
         except TypeError:
             ts_from, ts_to = convert_time_range(val)
             result.update({TS_GTE: ts_from, TS_LTE: ts_to})
@@ -125,23 +125,26 @@ def build_filters_time(filters):
 
 
 # XXX bookmark
-def get_time_histogram(interval, match, filters):
+def get_time_histogram(interval, filters, match=None):
+    if match is None:
+        match = {"match_all": {}}
     body = {
         "query": {
-            "bool" : {
+            "bool": {
                 "must": match,
                 "filter": filters
-                }
-            },
+            }
+        },
         "aggregations": {
             "timestamp_histo": {
                 "date_histogram" : {
-                    "field": "created_at",
+                    "field": settings.ES_TIMESTAMP_FIELD,
                     "interval": interval
                     }
                 }
-            }
-        }
+            },
+        "size": settings.ES_MAX_RESULTS
+    }
     res = search(body)
     try:
         buckets = res['aggregations']['timestamp_histo']['buckets']
@@ -276,6 +279,10 @@ class TweetResource(Resource):
             'user_name',
             'user_time_zone',
             ]
+        match_fields = [
+            "text", "tokens", "place", "user_name",
+            "user_location", "user_description",
+            ]
         keywords = [
             'annotations', 'country', 'lang', 'place', 'resource_uri', 'text',
             'tokens', 'tweetid', 'user_description', 'user_id', 'user_lang',
@@ -340,20 +347,78 @@ class TweetResource(Resource):
         return [self.fields[field_name].attribute]
 
     def dehydrate(self, bundle):
+        """
+        Formats output (bundle.data) to meet GeoJSON.
+        """
         bundle = super().dehydrate(bundle)
         if bundle.request.method == 'GET':
-            bundle.data.update(bundle.obj)
+            properties = bundle.obj.copy()
+            properties.update({"id": bundle.obj.tweetid})
+
+            # TODO: clearing fields should be done automatically by
+            #       specifying resource fields!
+            #
+            # Legacy, surrogate and unnecessary fields.
+            exclude_fields = [
+                "location", "latlong", "geotags", "annotations",
+                "tweet", "tweetid"
+                ]
+            for field in exclude_fields:
+                try:
+                    del properties[field]
+                except KeyError:
+                    continue
+
+            bundle.data = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                        bundle.obj.location["lat"],
+                        bundle.obj.location["lon"]
+                        ]
+                    },
+                "properties": properties
+                }
         return bundle
 
     def alter_list_data_to_serialize(self, request, data):
         """
         Add hotspots to the list of returned results after pagination.
         """
-        hotspots = get_hotspots([x.obj.tweetid for x in data['objects']])
-        data.update(hotspots=hotspots)
+        # Add header required by GeoJSON.
+        data.update({
+            "type": "FeatureCollection",
+            "crs": {
+                "type": "name",
+                "properties": {
+                    "name": "EPSG:4326"
+                    }
+                }
+            })
+
+        # Rename "objects" to meet GeoJSON format.
+        data["features"] = data["objects"]
+        del data["objects"]
+
+        # Append aggregations if any.
+        if self.aggregations:
+            data.update({"aggregations": self.aggregations})
+
         return data
 
-    def apply_filters(self, request, match=None, filters=None, sort=None):
+    def collect_aggregations(self, queryset):
+        aggregations = {}
+        for key in self.aggregate.keys():
+            try:
+                buckets = queryset['aggregations'][key]['buckets']
+            except Exception as err:
+                raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+            aggregations.update({key: buckets})
+
+        return aggregations
+
+    def apply_filters(self, request):
         """
         :param:match - dict, format:
             {"match_all": {}} (if no search is performed)
@@ -369,25 +434,30 @@ class TweetResource(Resource):
         body = {
             "query": {
                 "bool" : {
-                    "must": match,
-                    "filter": filters
+                    "must": self.match,
+                    "filter": self.filters
                     }
                 },
-            "sort": sort,
+            "sort": self.sort,
             'size': settings.ES_MAX_RESULTS
             }
-        if filters:
-            body["query"]["bool"].update({"filter": filters})
+        if self.aggregate:
+            body.update({"aggregations": self.aggregate})
 
-        result = []
-        for hit in search(body)['hits']['hits']:
+        queryset = search(body)
+
+        # Collect aggregations and store in the instance-wide variable
+        # for injecting in `alter_list_data_to_serialize`
+        self.aggregations = self.collect_aggregations(queryset)
+
+        docs = []
+        for hit in queryset['hits']['hits']:
             obj = RecordDict(**hit['_source'])
             obj.update({'score': hit['_score']})
-            result.append(obj)
+            docs.append(obj)
+        return docs
 
-        return result
-
-    def build_query(self, filters):
+    def build_query(self, **filters):
         query = filters.get("search", None)
         if query is None:
             return {"match_all": {}}
@@ -395,15 +465,12 @@ class TweetResource(Resource):
         return {
             "multi_match": {
                 "query": query,
-                "fields": [
-                    "text", "tokens", "place", "user_name",
-                    "user_location", "user_description",
-                    ]
+                "fields": self._meta.match_fields
                 }
             }
 
-    def build_filters(self, filters=None, ignore_bad_filters=True):
-        if filters is None:
+    def build_filters(self, **filters):
+        if not filters:
             return {}
 
         es_filters = []
@@ -488,6 +555,37 @@ class TweetResource(Resource):
                     })
         return order_by
 
+    def get_aggregate_by(self, **filters):
+        aggregate_by = {}
+        if filters.get('agg_timestamp', False):
+            interval = filters.get('interval', '10m')
+            aggregate_by.update({
+                "timestamp_histo": {
+                    "date_histogram" : {
+                        "field": settings.ES_TIMESTAMP_FIELD,
+                        "interval": interval
+                        }
+                    }
+                })
+        if filters.get('agg_hotspot', False):
+            aggregate_by.update({
+                "geo_hotspots": {
+                    "geohash_grid": {
+                        "field": "location",
+                        "precision": settings.HOTSPOTS_PRECISION,
+                        "size": settings.HOTSPOTS_MAX_NUMBER,
+                        },
+                    "aggs": {
+                        "cell": {
+                            "geo_bounds": {
+                                "field": "location"
+                                }
+                            }
+                        }
+                    }
+                })
+        return aggregate_by
+
     def obj_get_list(self, bundle, **kwargs):
         filters = {}
         self.messages = dict((x, []) for x in MSG_KEYS)
@@ -495,15 +593,16 @@ class TweetResource(Resource):
             filters = bundle.request.GET.dict()
         filters.update(kwargs)
 
-        match_query = self.build_query(filters=filters)
-        applicable_filters = self.build_filters(filters=filters)
-        order_by = self.get_order_by(**filters)
+        # XXX add this all to __init__
+        self.match = self.build_query(**filters)
+        self.filters = self.build_filters(**filters)
+        self.sort = self.get_order_by(**filters)
+        self.aggregate = self.get_aggregate_by(**filters)
         try:
-            objects = self.apply_filters(
-                bundle.request, match_query, applicable_filters, order_by
-                )
+            objects = self.apply_filters(bundle.request)
         except ValueError:
             raise ImmediateHttpResponse(response=http.HttpBadRequest(
                 "Invalid resource lookup data provided (mismatched type)."
                 ))
+
         return self.authorized_read_list(objects, bundle)
