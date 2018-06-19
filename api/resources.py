@@ -124,7 +124,6 @@ def build_filters_time(filters):
     return timestamp_range
 
 
-# XXX bookmark
 def get_time_histogram(interval, filters, match=None):
     if match is None:
         match = {"match_all": {}}
