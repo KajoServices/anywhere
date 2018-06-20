@@ -558,7 +558,7 @@ class TweetResource(Resource):
     def get_aggregate_by(self, **filters):
         aggregate_by = {}
         if filters.get('agg_timestamp', False):
-            interval = filters.get('interval', '10m')
+            interval = filters.get("agg_precision", settings.TIMESTAMP_PRECISION)
             aggregate_by.update({
                 "timestamp_histo": {
                     "date_histogram" : {
@@ -568,12 +568,14 @@ class TweetResource(Resource):
                     }
                 })
         if filters.get('agg_hotspot', False):
+            precision = filters.get("agg_precision", settings.HOTSPOTS_PRECISION)
+            size = filters.get("agg_size", settings.HOTSPOTS_MAX_NUMBER)
             aggregate_by.update({
                 "geo_hotspots": {
                     "geohash_grid": {
                         "field": "location",
-                        "precision": settings.HOTSPOTS_PRECISION,
-                        "size": settings.HOTSPOTS_MAX_NUMBER,
+                        "precision": precision,
+                        "size": size,
                         },
                     "aggs": {
                         "cell": {

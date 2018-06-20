@@ -260,8 +260,14 @@ ES_MAX_RESULTS = 1000
 
 # Hotspots on the map
 HOTSPOT_MIN_ENTRIES = 2
-HOTSPOTS_MAX_NUMBER = 20
-HOTSPOTS_PRECISION = 5
+HOTSPOTS_MAX_NUMBER = 1000
+# Available precision indexes:
+# https://www.elastic.co/guide/en/elasticsearch/reference/6.2//search-aggregations-bucket-geohashgrid-aggregation.html
+HOTSPOTS_PRECISION = 4
+
+
+# Timestamp charts
+TIMESTAMP_PRECISION = '10m'
 
 
 # Celery
