@@ -255,7 +255,7 @@ ES_INDEX = 'anywhere_v1'
 ES_DOC_TYPE = 'tweet'
 ES_TIMESTAMP_FIELD = 'created_at'
 ES_SCROLL_BATCHSIZE = 5000
-ES_MAX_RESULTS = 1000
+ES_MAX_RESULTS = 5000
 
 
 # Hotspots on the map
