@@ -124,79 +124,19 @@ def build_filters_time(filters):
     return timestamp_range
 
 
-def get_time_histogram(interval, filters, match=None):
-    if match is None:
-        match = {"match_all": {}}
-    body = {
-        "query": {
-            "bool": {
-                "must": match,
-                "filter": filters
-            }
-        },
-        "aggregations": {
-            "timestamp_histo": {
-                "date_histogram" : {
-                    "field": settings.ES_TIMESTAMP_FIELD,
-                    "interval": interval
-                    }
-                }
-            },
-        "size": settings.ES_MAX_RESULTS
-    }
-    res = search(body)
-    try:
-        buckets = res['aggregations']['timestamp_histo']['buckets']
-    except Exception as err:
-        return 'ERROR building histogram. %s: %s' % (type(err), str(err))
-    else:
-        return buckets
-
-
-def get_hotspots(ids):
+def clean_buckets(key, buckets):
     """
-    Quering ES for hotspots - areas of the map with a given radius, where
-    some valuable number of tweets is being accumulated.
-
-    :param: ids - list. Ids of tweets to filter by.
+    Re-formats buckets for cleaner look.
     """
-    body = {
-        "query": {
-            "terms": {
-                "tweetid": ids
-                }
-            },
-        "aggregations": {
-            "geo_hotspots": {
-                "geohash_grid": {
-                    "field": "location",
-                    "precision": settings.HOTSPOTS_PRECISION,
-                    "size": settings.HOTSPOTS_MAX_NUMBER,
-                    },
-                "aggs": {
-                    "cell": {
-                        "geo_bounds": {
-                            "field": "location"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    res = search(body)
-    try:
-        buckets = res['aggregations']['geo_hotspots']['buckets']
-    except Exception as err:
-        return 'ERROR retrieving hotspots. %s: %s' % (type(err), str(err))
+    if key == 'geo_hotspots':
+        buckets = [b for b in buckets
+                   if int(b['doc_count']) >= settings.HOTSPOT_MIN_ENTRIES]
+        buckets = buckets[:settings.HOTSPOTS_MAX_NUMBER]
+        _comp = lambda x: dict((b['key'], b['doc_count']) for b in x['buckets'])
+        for buck in buckets:
+            buck['location'] = avg_coords(buck['cell']['bounds'])
+            del buck['cell']
 
-    buckets = [b for b in buckets
-               if int(b['doc_count']) >= settings.HOTSPOT_MIN_ENTRIES]
-    buckets = sorted(buckets, key=lambda x: x['doc_count'], reverse=True)
-    buckets = buckets[:settings.HOTSPOTS_MAX_NUMBER]
-    _comp = lambda x: dict((b['key'], b['doc_count']) for b in x['buckets'])
-    for buck in buckets:
-        buck['location'] = avg_coords(buck['cell']['bounds'])
-        del buck['cell']
     return buckets
 
 
@@ -414,6 +354,8 @@ class TweetResource(Resource):
                 buckets = queryset['aggregations'][key]['buckets']
             except Exception as err:
                 raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+
+            buckets = clean_buckets(key, buckets)
             aggregations.update({key: buckets})
 
         return aggregations
