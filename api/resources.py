@@ -443,6 +443,9 @@ class TweetResource(Resource):
                         }
                     })
             else:
+                if field_name in self._meta.keywords:
+                    field_name = '{}.keyword'.format(field_name)
+
                 es_filters.append({
                     "term": {
                         field_name: value
