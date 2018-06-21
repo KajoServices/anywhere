@@ -580,7 +580,6 @@ class CountryResource(Resource):
         resource_name = 'country'
         list_allowed_methods = ('get',)
         detail_allowed_methods = []
-        detail_uri_name = 'name'
         authorization = Authorization()
         authentication = Authentication()
 
