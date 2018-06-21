@@ -13,6 +13,7 @@ from . import resources
 v1_api = Api(api_name=ApiConfig.name)
 v1_api.register(resources.EdgeBundleResource())
 v1_api.register(resources.TweetResource())
+v1_api.register(resources.CountryResource())
 
 urlpatterns = [
     url(r'^', include(v1_api.urls)),

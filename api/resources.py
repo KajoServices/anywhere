@@ -1,5 +1,6 @@
 import json
 import logging
+from dbfread import DBF
 
 from django.conf import settings
 from django.utils import timezone
@@ -572,3 +573,26 @@ class TweetResource(Resource):
                 ))
 
         return self.authorized_read_list(objects, bundle)
+
+
+class CountryResource(Resource):
+    class Meta:
+        resource_name = 'country'
+        list_allowed_methods = ('get',)
+        detail_allowed_methods = []
+        detail_uri_name = 'name'
+        authorization = Authorization()
+        authentication = Authentication()
+
+    def alter_list_data_to_serialize(self, request, data):
+        """
+        Server a plain list of country names.
+        """
+        data["objects"] = [r['NAME'] for r in DBF(settings.COUNTRIES)]
+        cnt = len(data["objects"])
+        data["meta"].update({"total_count": cnt, "limit": cnt})
+        return data
+
+    def obj_get_list(self, bundle, **kwargs):
+        """Dummy. Filled in alter_list_data_to_serialize."""
+        return []

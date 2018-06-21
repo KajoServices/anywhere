@@ -270,6 +270,10 @@ HOTSPOTS_PRECISION = 4
 TIMESTAMP_PRECISION = '10m'
 
 
+# Countries reference file
+COUNTRIES = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
+
+
 # Celery
 CELERY_ACCEPT_CONTENT = ['application/json', 'pickle']
 

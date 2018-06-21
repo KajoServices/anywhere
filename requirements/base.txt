@@ -6,6 +6,7 @@ celery==4.1.0
 certifi==2018.4.16
 chardet==3.0.4
 dateparser==0.7.0
+dbfread==2.0.7
 decorator==4.3.0
 Django==2.0.6
 django-cors-headers==2.2.0
