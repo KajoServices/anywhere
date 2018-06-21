@@ -576,6 +576,9 @@ class TweetResource(Resource):
 
 
 class CountryResource(Resource):
+    """
+    Plain and simple list of coutries.
+    """
     class Meta:
         resource_name = 'country'
         list_allowed_methods = ('get',)
@@ -584,14 +587,12 @@ class CountryResource(Resource):
         authentication = Authentication()
 
     def alter_list_data_to_serialize(self, request, data):
-        """
-        Server a plain list of country names.
-        """
+        """Serves plain list of country names."""
         data["objects"] = [r['NAME'] for r in DBF(settings.COUNTRIES)]
         cnt = len(data["objects"])
         data["meta"].update({"total_count": cnt, "limit": cnt})
         return data
 
     def obj_get_list(self, bundle, **kwargs):
-        """Dummy. Filled in alter_list_data_to_serialize."""
+        """Dummy."""
         return []
