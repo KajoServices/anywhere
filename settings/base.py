@@ -25,22 +25,6 @@ INSTALLED_APPS = [
     'django.contrib.gis',
     'django_extensions',
 
-    'wagtail.contrib.redirects',
-    'wagtail.contrib.styleguide',
-    'wagtail.contrib.forms',
-    'wagtail.embeds',
-    'wagtail.sites',
-    'wagtail.users',
-    'wagtail.snippets',
-    'wagtail.documents',
-    'wagtail.images',
-    'wagtail.search',
-    'wagtail.admin',
-    'wagtail.core',
-
-    'modelcluster',
-    'taggit',
-
     'tastypie',
     'corsheaders',
 
@@ -60,9 +44,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
-
-    'wagtail.core.middleware.SiteMiddleware',
-    'wagtail.contrib.redirects.middleware.RedirectMiddleware',
 ]
 
 ROOT_URLCONF = 'urls'
@@ -141,11 +122,7 @@ MEDIA_ROOT = rel('media')
 MEDIA_URL = '/media/'
 
 
-# Wagtail settings
-
-WAGTAIL_SITE_NAME = "anywhere"
-
-# Base URL to use when referring to full URLs within the Wagtail admin backend -
+# Base URL to use when referring to full URLs within the admin backend -
 # e.g. in notification emails. Don't include '/admin' or a trailing slash
 BASE_URL = 'http://anywhere.com'
 
