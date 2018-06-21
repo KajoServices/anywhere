@@ -124,11 +124,11 @@ def build_filters_time(filters):
     return timestamp_range
 
 
-def clean_buckets(key, buckets):
+def prepare_buckets(key, buckets, **filters):
     """
     Re-formats buckets for cleaner look.
     """
-    if key == 'geo_hotspots':
+    if key == 'agg_hotspot':
         buckets = [b for b in buckets
                    if int(b['doc_count']) >= settings.HOTSPOT_MIN_ENTRIES]
         buckets = buckets[:settings.HOTSPOTS_MAX_NUMBER]
@@ -136,7 +136,9 @@ def clean_buckets(key, buckets):
         for buck in buckets:
             buck['location'] = avg_coords(buck['cell']['bounds'])
             del buck['cell']
-
+    elif key == 'agg_floodprob':
+        for bucket in buckets:
+            bucket['avg_flood_probability'] = bucket['avg_flood_probability']['value']
     return buckets
 
 
@@ -324,7 +326,7 @@ class TweetResource(Resource):
 
     def alter_list_data_to_serialize(self, request, data):
         """
-        Add hotspots to the list of returned results after pagination.
+        Re-formats output to meet GeoJSON standard.
         """
         # Add header required by GeoJSON.
         data.update({
@@ -355,7 +357,7 @@ class TweetResource(Resource):
             except Exception as err:
                 raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
 
-            buckets = clean_buckets(key, buckets)
+            buckets = prepare_buckets(key, buckets, **self.filters)
             aggregations.update({key: buckets})
 
         return aggregations
@@ -505,10 +507,27 @@ class TweetResource(Resource):
         if filters.get('agg_timestamp', False):
             interval = filters.get("agg_precision", settings.TIMESTAMP_PRECISION)
             aggregate_by.update({
-                "timestamp_histo": {
-                    "date_histogram" : {
+                "agg_timestamp": {
+                    "date_histogram": {
                         "field": settings.ES_TIMESTAMP_FIELD,
                         "interval": interval
+                        }
+                    }
+                })
+        if filters.get('agg_floodprob', False):
+            interval = filters.get("agg_precision", settings.TIMESTAMP_PRECISION)
+            aggregate_by.update({
+                "agg_floodprob": {
+                    "date_histogram": {
+                        "field": settings.ES_TIMESTAMP_FIELD,
+                        "interval": interval
+                        },
+                    "aggs": {
+                        "avg_flood_probability": {
+                            "avg": {
+                                "field": "flood_probability"
+                                }
+                            }
                         }
                     }
                 })
@@ -516,7 +535,7 @@ class TweetResource(Resource):
             precision = filters.get("agg_precision", settings.HOTSPOTS_PRECISION)
             size = filters.get("agg_size", settings.HOTSPOTS_MAX_NUMBER)
             aggregate_by.update({
-                "geo_hotspots": {
+                "agg_hotspot": {
                     "geohash_grid": {
                         "field": "location",
                         "precision": precision,
@@ -540,7 +559,7 @@ class TweetResource(Resource):
             filters = bundle.request.GET.dict()
         filters.update(kwargs)
 
-        # XXX add this all to __init__
+        # XXX __init__ these all
         self.match = self.build_query(**filters)
         self.filters = self.build_filters(**filters)
         self.sort = self.get_order_by(**filters)
