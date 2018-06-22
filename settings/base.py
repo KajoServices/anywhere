@@ -27,7 +27,6 @@ INSTALLED_APPS = [
 
     'tastypie',
     'corsheaders',
-    'umap',
 
     'core',
     'analytics',
