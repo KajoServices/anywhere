@@ -27,6 +27,7 @@ INSTALLED_APPS = [
 
     'tastypie',
     'corsheaders',
+    'umap',
 
     'core',
     'analytics',
@@ -268,4 +269,3 @@ try:
     from .local import *
 except Exception as err:
     print('Error loading local settings:\n%s\n\nUsing base settings.' % err)
-

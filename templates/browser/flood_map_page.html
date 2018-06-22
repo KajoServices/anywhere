@@ -1,7 +1,5 @@
 {% extends "base.html" %}
 
-{% load wagtailcore_tags %}
-
 {% block body_class %}template-homepage{% endblock %}
 
 {% block content %}
@@ -23,7 +21,7 @@
 
 <div class="row nice-padding">
   <div class="left">
-    <form action="{% pageurl page %}" method="POST">
+    <form action="{% data.success_url %}" method="POST">
     {% csrf_token %}
     {{ form.as_p }}
     <p><input type="submit" value="Filter"></p>

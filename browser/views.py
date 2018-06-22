@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from django.shortcuts import render
 from django.views.generic import FormView
 from django import forms
 
@@ -21,3 +22,19 @@ class FloodMapView(AjaxFormMixin, FormView):
                     )
                 )
         return threshold
+
+    def post(request):
+        form = FloodMapFiltersForm(request.POST)
+        data = {'success_url': self.success_url}
+        if form.is_valid():
+            return render(request, self.template_name, {
+                'form': form,
+                })
+
+    def get(request):
+        form = FloodMapFiltersForm()
+        data = {'success_url': self.success_url}
+        if form.is_valid():
+            return render(request, self.template_name, {
+                'form': form,
+                })

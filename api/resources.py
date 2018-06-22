@@ -253,6 +253,8 @@ class TweetResource(Resource):
         except Exception as err:
             LOG.error("{}: {}".format(type(err), err))
             raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+        else:
+            LOG.info("{}: {}".format(_id, result))
 
         # TODO
         # If sucessful `result` is either 'created' or 'updated'
