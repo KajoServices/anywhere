@@ -1,47 +1,37 @@
 {% extends "base.html" %}
 
-{% block body_class %}template-homepage{% endblock %}
-
 {% block content %}
 
-<header class="hasform">
-  <div class="row nice-padding">
-    <div class="left">
-      <div class="col header-title">
-        <h1 class="icon icon-">
-          {{ page.title }}
-        </h1>
-      </div>
-    </div>
-    <div class="right">
-      Anywhere
-    </div>
-  </div>
-</header>
+<div id="content" class="colMS">
+  <h1>Flood map</h1>
+  <div id="content-main">
+    <div class="app-auth module">
+     <table>
+       <caption>
+       <a href="/admin/auth/" class="section" title="Models in the Authentication and Authorization application">Filters</a>
+       </caption>
+       <tbody>
+         <tr class="model-group">
+           <td>
+           <div class="left">
+             <form action="{{ data.form_url }}" method="POST">
+             {% csrf_token %}
+             {{ form.as_p }}
+             <p><input type="submit" value="Filter"></p>
+             </form>
+           </div>
+           </td>
 
-<div class="row nice-padding">
-  <div class="left">
-    <form action="{% data.success_url %}" method="POST">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <p><input type="submit" value="Filter"></p>
-    </form>
-  </div>
+           <td>
+             <iframe src="http://173.249.20.52:5601/app/kibana#/visualize/edit/59f22510-56de-11e8-add1-7d9803bb9fea?embed=true&_g=(refreshInterval:(display:Off,pause:!f,value:0),time:(from:now-24h,mode:quick,to:now))&_a=(filters:!(('$state':(store:appState),meta:(alias:!n,disabled:!f,index:'849cfe50-600e-11e8-add1-7d9803bb9fea',key:flood_probability,negate:!f,params:(gte:0.3,lt:!n),type:range,value:'0.3+to+%2B%E2%88%9E'),range:(flood_probability:(gte:{{form.flood_probability.value}},lt:!n)))),linked:!f,query:(language:lucene,query:''),uiState:(),vis:(aggs:!((enabled:!t,id:'1',params:(field:flood_probability),schema:metric,type:avg),(enabled:!t,id:'2',params:(autoPrecision:!t,field:location,isFilteredByCollar:!t,precision:2,useGeocentroid:!t),schema:segment,type:geohash_grid)),params:(addTooltip:!t,heatClusterSize:1.5,isDesaturated:!t,legendPosition:bottomright,mapCenter:!(0,0),mapType:'Scaled+Circle+Markers',mapZoom:2,wms:(baseLayersAreLoaded:(),enabled:!f,options:(format:image%2Fpng,transparent:!t),selectedTmsLayer:(attribution:'%3Cp%3E%26%23169;+%3Ca+href%3D%22http:%2F%2Fwww.openstreetmap.org%2Fcopyright%22%3EOpenStreetMap%3C%2Fa%3E+contributors+%7C+%3Ca+href%3D%22https:%2F%2Fwww.elastic.co%2Felastic-maps-service%22%3EElastic+Maps+Service%3C%2Fa%3E%3C%2Fp%3E%26%2310;',id:road_map,maxZoom:10,minZoom:0,subdomains:!(),url:'https:%2F%2Ftiles.maps.elastic.co%2Fv2%2Fdefault%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png%3Felastic_tile_service_tos%3Dagree%26my_app_name%3Dkibana%26my_app_version%3D6.2.4'),tmsLayers:!((attribution:'%3Cp%3E%26%23169;+%3Ca+href%3D%22http:%2F%2Fwww.openstreetmap.org%2Fcopyright%22%3EOpenStreetMap%3C%2Fa%3E+contributors+%7C+%3Ca+href%3D%22https:%2F%2Fwww.elastic.co%2Felastic-maps-service%22%3EElastic+Maps+Service%3C%2Fa%3E%3C%2Fp%3E%26%2310;',id:road_map,maxZoom:10,minZoom:0,subdomains:!(),url:'https:%2F%2Ftiles.maps.elastic.co%2Fv2%2Fdefault%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png%3Felastic_tile_service_tos%3Dagree%26my_app_name%3Dkibana%26my_app_version%3D6.2.4')))),title:'flood+prob+test1',type:tile_map))" height="600" width="800"></iframe>
+           </td>
+         </tr>
+       </tbody>
+     </table>
+   </div>
+ </div>
 </div>
 
-<div class="row nice-padding">
-  <div class="left">
-    {{ page.histo }}
-  </div>
-  <div class="right">
-    {{ page.graph }}
-  </div>
-</div>
 
-<div class="row nice-padding">
-  <div class="left">
-    {{ page.tweets }}
-  </div>
-</div>
 
 {% endblock %}

@@ -2,8 +2,8 @@
 from django.conf.urls import url
 from django.contrib import admin
 
-from .views import FloodMapView
+from .views import get_floodmap
 
 urlpatterns = [
-    url(r'^floodmap/$', FloodMapView.as_view(), name='floodmap'),
+    url(r'^floodmap/$', get_floodmap, name='floodmap'),
     ]

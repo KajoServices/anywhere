@@ -1,5 +1,3 @@
-{% load static wagtailuserbar %}
-
 <!DOCTYPE html>
 <html class="no-js">
     <head>
@@ -18,24 +16,14 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
 
         {# Global stylesheets #}
-        <link rel="stylesheet" href="/static/wagtailadmin/css/normalize.css" />
-        <link rel="stylesheet" href="/static/wagtailadmin/css/vendor/jquery-ui/jquery-ui-1.10.3.verdant.css" />
-        <link rel="stylesheet" href="/static/wagtailadmin/css/vendor/jquery.tagit.css">
-        <link rel="stylesheet" href="/static/wagtailadmin/css/core.css" type="text/css" />
-        <link rel="stylesheet" href="/static/wagtailstyleguide/css/styleguide.css" type="text/css" />
-        <link href="/static/wagtailadmin/css/panels/draftail.css" type="text/css" media="all" rel="stylesheet" />
-        <link rel="shortcut icon" href="/static/wagtailadmin/images/favicon.ico" />
 
         {% block extra_css %}
-            {# Override this in templates to add extra stylesheets #}
+            <link rel="stylesheet" href="/static/admin/css/base.css" />
         {% endblock %}
     </head>
 
     <body class="{% block body_class %}{% endblock %}">
         <div class="wrapper">
-
-            {% wagtailuserbar %}
-
             <div class="content-wrapper">
                 <div class="content">
 
