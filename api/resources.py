@@ -38,6 +38,18 @@ GEO_FIELDS = [
     ]
 
 
+def log_and_raise_400(err):
+    LOG.error("{}: {}".format(type(err), err))
+    raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+
+
+def log_all_ok(result, _id, created_at=None):
+    if created_at:
+        LOG.info("{}: {} ({})".format(result, _id, created_at))
+    else:
+        LOG.info("{}: {}".format(result, _id))
+
+
 def avg_coords(rec):
     _lng, _lat = 0, 0
     count = len(rec)
@@ -251,10 +263,9 @@ class TweetResource(Resource):
         try:
             result = create_or_update_index(_id, bundle.obj)
         except Exception as err:
-            LOG.error("{}: {}".format(type(err), err))
-            raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+            log_and_raise_400(err)
         else:
-            LOG.info("{}: {}".format(_id, result))
+            log_all_ok(result, _id, bundle.obj.created_at)
 
         # TODO
         # If sucessful `result` is either 'created' or 'updated'
@@ -264,10 +275,13 @@ class TweetResource(Resource):
 
     def obj_delete(self, bundle, **kwargs):
         self.authorized_delete_detail([bundle.data], bundle)
+        _id = kwargs[self._meta.detail_uri_name]
         try:
-            delete_from_index(kwargs[self._meta.detail_uri_name])
+            result = delete_from_index(_id)
         except Exception as err:
-            raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+            log_and_raise_400(err)
+        else:
+            log_all_ok(result, _id)
 
     def check_filtering(self, field_name, filter_type='exact', filter_bits=None):
         if filter_bits is None:

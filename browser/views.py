@@ -11,7 +11,6 @@ from .models import PROB_THRESHOLD
 class FloodMapView(AjaxFormMixin, FormView):
     form_class = FloodMapFiltersForm
     template_name  = 'browser/flood_map_page.html'
-    success_url = '/floodmap/'
 
     def clean_flood_prob_threshold(self):
         threshold = self.cleaned_data.get("clean_flood_prob_threshold")
@@ -25,7 +24,6 @@ class FloodMapView(AjaxFormMixin, FormView):
 
     def post(request):
         form = FloodMapFiltersForm(request.POST)
-        data = {'success_url': self.success_url}
         if form.is_valid():
             return render(request, self.template_name, {
                 'form': form,
@@ -33,8 +31,4 @@ class FloodMapView(AjaxFormMixin, FormView):
 
     def get(request):
         form = FloodMapFiltersForm()
-        data = {'success_url': self.success_url}
-        if form.is_valid():
-            return render(request, self.template_name, {
-                'form': form,
-                })
+        return render(request, self.template_name, {'form': form})
