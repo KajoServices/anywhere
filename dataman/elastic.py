@@ -1,11 +1,13 @@
 import re
 
 from django.conf import settings
+from django.db.models.constants import LOOKUP_SEP
 
 from elasticsearch import Elasticsearch, NotFoundError
 
 import settings.base as conf
-from core.utils import get_val_by_path
+from core.utils import get_val_by_path, build_filters_geo, build_filters_time, \
+     QUERY_TERMS
 
 
 es = Elasticsearch(
@@ -180,6 +182,11 @@ ES_INDEX_MAPPING = {
     }
 }
 
+ES_KEYWORDS = [
+    key for key, mp in ES_INDEX_MAPPING['properties'].items()
+    if get_val_by_path("fields/keyword/type", **mp) == "keyword"
+    ]
+
 
 def create_index(mapping):
     response = es.indices.create(index=settings.ES_INDEX, body=mapping)
@@ -225,7 +232,7 @@ def index_required(method):
     return index_required_wrapper
 
 
-def _do_create_or_update_index(id_, body):
+def _do_create_or_update_doc(id_, body):
     return es.index(
         index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE,
         id=id_, body=body
@@ -233,13 +240,13 @@ def _do_create_or_update_index(id_, body):
 
 
 @index_required
-def create_or_update_index(id_, body):
-    response = _do_create_or_update_index(id_, body)
+def create_or_update_doc(id_, body):
+    response = _do_create_or_update_doc(id_, body)
     return response['result']
 
 
 @index_required
-def delete_from_index(id_):
+def delete_doc(id_):
     response = es.delete(
         index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE, id=id_
         )
@@ -392,3 +399,91 @@ def tokenize(text, lang='en'):
         and (len(t.lower().strip()) > 1)
         ]
     return tokens
+
+
+class QueryConverter(object):
+    """
+    A provisioner of a search query.
+    """
+    def __init__(self, query=None):
+        """
+        :param query: string - search query
+        """
+        self.query = query
+
+    def convert(self):
+        if not self.query:
+            return {"match_all": {}}
+
+        return {"match": self.query}
+
+
+class FilterConverter(object):
+    def __init__(self, **filters):
+        """
+        :param index: string - index name
+        :param doc_type: string - doc_type in the specified index name
+        :kwargs filters: dict - actual filters
+        """
+        self.input_filters = filters
+        self.keywords = ES_KEYWORDS
+        self.schema = ES_INDEX_MAPPING['properties']
+
+    def fill_keywords(self, keywords=None):
+        if not keywords:
+            keywords = []
+        self.keywords.extend(keywords)
+        self.keywords = list(set(self.keywords))
+
+    def fill_schema(self, schema=None):
+        if schema:
+            self.schema = schema
+
+    def convert(self, schema=None, keywords=None):
+        if not self.input_filters:
+            return {}
+
+        es_filters = []
+        self.fill_keywords(keywords)
+        self.fill_schema(schema)
+
+        filters_geo = build_filters_geo(self.input_filters)
+        if filters_geo:
+            es_filters.append(filters_geo)
+
+        filters_time = build_filters_time(self.input_filters)
+        if filters_time:
+            es_filters.append(filters_time)
+
+        for filter_expr, value in self.input_filters.items():
+            filter_bits = filter_expr.split(LOOKUP_SEP)
+            field_name = filter_bits.pop(0)
+
+            # Ignore fields we know nothing about.
+            if field_name not in self.schema.keys():
+                continue
+
+            # Those are used already in build_filters_time and build_filters_geo.
+            if (field_name == settings.ES_TIMESTAMP_FIELD) or \
+                (field_name in settings.ES_BOUNDING_BOX_FIELDS):
+                continue
+
+            if len(filter_bits) and filter_bits[-1] in QUERY_TERMS:
+                filter_type = filter_bits.pop()
+                es_filters.append({
+                    "range": {
+                        field_name: {
+                            filter_type: value
+                            }
+                        }
+                    })
+            else:
+                if field_name in self.keywords:
+                    field_name = '{}.keyword'.format(field_name)
+
+                es_filters.append({
+                    "term": {
+                        field_name: value
+                        }
+                    })
+        return es_filters

@@ -3,7 +3,6 @@ import logging
 from dbfread import DBF
 
 from django.conf import settings
-from django.utils import timezone
 from django.db.models.constants import LOOKUP_SEP
 
 from tastypie.resources import Resource
@@ -11,31 +10,21 @@ from tastypie.authorization import Authorization
 from tastypie.authentication import Authentication, ApiKeyAuthentication
 from tastypie.exceptions import ImmediateHttpResponse, InvalidFilterError, \
      InvalidSortError
-from tastypie.utils import dict_strip_unicode_keys, string_to_python
 from tastypie import fields
 from tastypie import http
 
 from .auth import StaffAuthorization
 from analytics.collectors.semantic import get_graph
-from dataman.normalizer import TweetNormalizer
-from dataman.elastic import search, create_or_update_index, delete_from_index
-from core.utils import RecordDict, get_parsed_datetime, \
-     localize_timestamp, convert_time_range, flatten_list
+from dataman.processors import TweetNormalizer, normalize_aggressive, \
+     categorize_repr_docs
+from dataman.elastic import search, create_or_update_doc, delete_doc, \
+     FilterConverter, ES_KEYWORDS
+from core.utils import RecordDict, flatten_list, avg_coords, QUERY_TERMS
 
 
 LOG = logging.getLogger('tweet')
 MSG_KEYS = ('info', 'warning', 'error',)
-QUERY_TERMS = [
-    'ne', 'lt', 'lte', 'gt', 'gte', 'not', 'in', 'nin', 'mod', 'all', 'size',
-    'exists', 'exact', 'iexact', 'contains', 'icontains', 'startswith',
-    'istartswith', 'endswith', 'iendswith', 'match'
-    ]
 DATE_FILTERS = ('exact', 'lt', 'lte', 'gte', 'gt', 'ne')
-TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
-TS_LTE = settings.ES_TIMESTAMP_FIELD + '__lte'
-GEO_FIELDS = [
-    'top_left_lon', 'top_left_lat', 'bottom_right_lon', 'bottom_right_lat'
-    ]
 
 
 def log_and_raise_400(err):
@@ -48,93 +37,6 @@ def log_all_ok(result, _id, created_at=None):
         LOG.info("{}: {} ({})".format(result, _id, created_at))
     else:
         LOG.info("{}: {}".format(result, _id))
-
-
-def avg_coords(rec):
-    _lng, _lat = 0, 0
-    count = len(rec)
-    for each in rec:
-        _lng += rec[each]['lon']
-        _lat += rec[each]['lat']
-    return [_lng*1.0/count, _lat*1.0/count]
-
-
-def build_filters_geo(filters):
-    if not all([k in filters for k in GEO_FIELDS]):
-        return {}
-
-    return {
-        "geo_bounding_box": {
-            "location": {
-                "top_left" : {
-                    "lat": float(filters["top_left_lat"]),
-                    "lon": float(filters["top_left_lon"])
-                    },
-                "bottom_right" : {
-                    "lat": float(filters["bottom_right_lat"]),
-                    "lon": float(filters["bottom_right_lon"])
-                    }
-                }
-            }
-        }
-
-def build_filters_time(filters):
-    """
-    Re-defines filters dict, taiking into account custom timestamp
-    filters: all keys in `filters` that contain 'timestamp' are
-    being converted into the form
-        timestamp[__<modifier>]=<datetime>
-
-    Other filters remain intact.
-
-    :param filters: dict
-    :param limit_ctrl: bool - if True, lower limit will be set
-        if there is no 'timestamp' in `filters`.
-
-    :return: dict - modified filters.
-    """
-    def filter_exact(val):
-        ts, _ = localize_timestamp(val)
-        return {
-            TS_GTE: ts,
-            TS_LTE: ts + timezone.timedelta(minutes=1)
-            }
-
-    result = {}
-    for key, val in filters.items():
-        if not settings.ES_TIMESTAMP_FIELD in key:
-            continue
-
-        if '__' in key:
-            # "{ES_TIMESTAMP_FIELD}__exact" is not allowed! Use
-            # it as a lower limit, and get a value one minute
-            # later for a higher limit.
-            if '__exact' in key:
-                result.update(filter_exact(val))
-            else:
-                ts = get_parsed_datetime(val)
-                ts, _ = localize_timestamp(ts)
-                result[key] = ts
-            continue
-
-        # Process '{ES_TIMESTAMP_FIELD}='.
-        try:
-            _ = get_parsed_datetime(val)
-        except TypeError:
-            ts_from, ts_to = convert_time_range(val)
-            result.update({TS_GTE: ts_from, TS_LTE: ts_to})
-        else:
-            # The same as {ES_TIMESTAMP_FIELD}__exact.
-            result.update(filter_exact(val))
-
-    timestamp_range = {}
-    for key, val in result.items():
-        name = key.split('__')[1]
-        timestamp_range.update({name: val.isoformat()})
-    if timestamp_range:
-        timestamp_range = {"range": {settings.ES_TIMESTAMP_FIELD: timestamp_range}}
-
-    return timestamp_range
 
 
 def prepare_buckets(key, buckets, **filters):
@@ -237,11 +139,6 @@ class TweetResource(Resource):
             "text", "tokens", "place", "user_name",
             "user_location", "user_description",
             ]
-        keywords = [
-            'annotations', 'country', 'lang', 'place', 'resource_uri', 'text',
-            'tokens', 'tweetid', 'user_description', 'user_id', 'user_lang',
-            'user_location', 'user_name', 'user_profile_image_url', 'user_time_zone'
-            ]
         authorization = StaffAuthorization()
         authentication = ApiKeyAuthentication()
 
@@ -261,7 +158,7 @@ class TweetResource(Resource):
         bundle = self.normalize_object(bundle)
         _id = getattr(bundle.obj, self._meta.detail_uri_name)
         try:
-            result = create_or_update_index(_id, bundle.obj)
+            result = create_or_update_doc(_id, bundle.obj)
         except Exception as err:
             log_and_raise_400(err)
         else:
@@ -277,7 +174,7 @@ class TweetResource(Resource):
         self.authorized_delete_detail([bundle.data], bundle)
         _id = kwargs[self._meta.detail_uri_name]
         try:
-            result = delete_from_index(_id)
+            result = delete_doc(_id)
         except Exception as err:
             log_and_raise_400(err)
         else:
@@ -400,7 +297,7 @@ class TweetResource(Resource):
                     }
                 },
             "sort": self.sort,
-            'size': settings.ES_MAX_RESULTS
+            "size": settings.ES_MAX_RESULTS
             }
         if self.aggregate:
             body.update({"aggregations": self.aggregate})
@@ -431,45 +328,11 @@ class TweetResource(Resource):
             }
 
     def build_filters(self, **filters):
-        if not filters:
-            return {}
-
-        es_filters = []
-
-        filters_geo = build_filters_geo(filters)
-        if filters_geo:
-            es_filters.append(filters_geo)
-
-        filters_time = build_filters_time(filters)
-        if filters_time:
-            es_filters.append(filters_time)
-
-        for filter_expr, value in filters.items():
-            filter_bits = filter_expr.split(LOOKUP_SEP)
-            field_name = filter_bits.pop(0)
-
-            # Ignore fields we know nothing about.
-            if field_name not in self._meta.filtering:
-                continue
-
-            if len(filter_bits) and filter_bits[-1] in QUERY_TERMS:
-                filter_type = filter_bits.pop()
-                es_filters.append({
-                    "range": {
-                        field_name: {
-                            filter_type: value
-                            }
-                        }
-                    })
-            else:
-                if field_name in self._meta.keywords:
-                    field_name = '{}.keyword'.format(field_name)
-
-                es_filters.append({
-                    "term": {
-                        field_name: value
-                        }
-                    })
+        converter = FilterConverter(**filters)
+        keywords = ['annotations', 'resource_uri', 'user_id']
+        es_filters = converter.convert(
+            schema=self._meta.filtering, keywords=keywords
+            )
         return {"bool": {"must": es_filters}}
 
     def get_order_by(self, **kwargs):
@@ -500,7 +363,7 @@ class TweetResource(Resource):
                     )
 
             # Add .keyword to string fields.
-            if name in self._meta.keywords:
+            if name in ES_KEYWORDS:
                 name = '{}.keyword'.format(name)
             order_by.append({name: order})
 
@@ -591,9 +454,66 @@ class TweetResource(Resource):
         return self.authorized_read_list(objects, bundle)
 
 
+class CategorizedTweetResource(TweetResource):
+    class Meta:
+        resource_name = 'tweet_categorized'
+        list_allowed_methods = ('get',)
+        detail_uri_name = 'tweetid'
+        detail_allowed_methods = []
+        filtering = {
+            'flood_probability': ('gte',),
+            'lang': ('exact',),
+            'country': ('exact',),
+            }
+        ordering = [
+            settings.ES_TIMESTAMP_FIELD,
+            'flood_probability',
+            'country',
+            'lang',
+            'user_lang',
+            'user_name',
+            'user_time_zone',
+            ]
+        match_fields = [
+            "text", "tokens", "place", "user_name",
+            "user_location", "user_description",
+            ]
+        authorization = StaffAuthorization()
+        authentication = ApiKeyAuthentication()
+
+    def alter_list_data_to_serialize(self, request, data):
+        def reduce_categorized(doc):
+            doc_reduced = dict((k, doc[k]) for k in doc.keys() if k in ("_id", "text"))
+            return RecordDict(**doc_reduced)
+            
+        docs = []
+        for obj in data['objects']:
+            doc = obj.obj.copy()
+            doc.update({
+                "_id": getattr(obj.obj, self._meta.detail_uri_name),
+                "_normalized_text": normalize_aggressive(obj.obj.text)
+                })
+            docs.append(doc)
+        
+        categorized = categorize_repr_docs(docs)
+        representative_docs = []
+        for doc in categorized["representative_docs"]:
+            representative_docs.append(reduce_categorized(doc))
+
+        non_representative_docs = []
+        for doc in categorized["non_representative_docs"]:
+            non_representative_docs.append(reduce_categorized(doc))
+
+        data.update(
+            representative_docs=representative_docs,
+            non_representative_docs=non_representative_docs
+            )
+        return data
+
+
 class CountryResource(Resource):
     """
-    Plain and simple list of coutries.
+    Plain and simple list of countries.
     """
     class Meta:
         resource_name = 'country'

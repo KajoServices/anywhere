@@ -1,25 +1,28 @@
 import os
 import sys
 import time
-sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-
 import json
 import datetime
+
+from django.conf import settings
+from django.utils import timezone
+from django.db.models.constants import LOOKUP_SEP
+
 from celery import Celery
 from celery.task.base import periodic_task
 from celery.task.schedules import crontab
 
-import settings.base as conf
-from dataman import cassandra, elastic, normalizer
-from core.utils import timeit
+from dataman import cassandra, elastic
+from dataman.processors import TweetNormalizer, GeoClusterBuilder, \
+     categorize_repr_docs
 
 
 app = Celery('celerytasks')
-app.conf.broker_url = conf.BROKER_URL
-app.conf.result_backend = conf.RESULT_BACKEND
-app.conf.accept_content = conf.CELERY_ACCEPT_CONTENT
+app.conf.broker_url = settings.BROKER_URL
+app.conf.result_backend = settings.RESULT_BACKEND
+app.conf.accept_content = settings.CELERY_ACCEPT_CONTENT
 
-INDEX_UPDATE_TIME_LIMIT = conf.CASSANDRA_BEAT + 60
+INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
 
 
 def update_doc(doc):
@@ -42,10 +45,10 @@ def update_doc(doc):
 
 
 def process_doc(_id, doc):
-    norm = normalizer.TweetNormalizer(doc)
+    norm = TweetNormalizer(doc)
     obj = norm.normalize()
     try:
-        res = elastic.create_or_update_index(_id, obj)
+        res = elastic.create_or_update_doc(_id, obj)
     except Exception as err:
         print("! [process_doc] Could not add doc {} to index:\n  {}".format(
             doc['tweetid'], err))
@@ -84,13 +87,13 @@ def run_index_update(timestamp):
     return report
 
 
-@periodic_task(run_every=datetime.timedelta(seconds=conf.CASSANDRA_BEAT))
+@periodic_task(run_every=datetime.timedelta(seconds=settings.CASSANDRA_BEAT))
 def monitor_new_records():
     """
     Periodically start collecting new records for the last N hours.
     """
     timestamp = datetime.datetime.utcnow() \
-              - datetime.timedelta(hours=conf.CASSANDRA_TIMEDELTA)
+              - datetime.timedelta(hours=settings.CASSANDRA_TIMEDELTA)
     run_index_update.delay(timestamp)
 
 
@@ -107,7 +110,7 @@ def process_batch(batch):
 @periodic_task(run_every=crontab(hour=23))
 def full_reindex():
     total = elastic.return_all()['hits']['total']
-    batch_size = conf.ES_SCROLL_BATCHSIZE
+    batch_size = settings.ES_SCROLL_BATCHSIZE
     processed = 0
     scroll_id = None
 
@@ -123,3 +126,23 @@ def full_reindex():
         processed += batch_size
 
     print(". [full_reindex] finished")
+
+
+def retain_representative_tweets(filters):
+    # Clustering tweets by geolocation.
+    result = GeoClusterBuilder('lang', **filters).get_clusters()
+
+    # Select representative tweets for each cluster.
+    for cluster in result["clusters"]:
+        categorized = categorize_repr_docs(cluster["docs"])
+
+        for tweet in categorized["non_representative_tweets"]:
+            elastic.delete_doc(tweet["tweetid"])
+
+
+@periodic_task(run_every=crontab(minute=settings.SEGMENTER_TIMEFRAME))
+def task_retain_representative_tweets():
+    timestamp_gte = settings.ES_TIMESTAMP_FIELD + '__gte'
+    past = (timezone.now() - timezone.timedelta(minutes=settings.SEGMENTER_TIMEFRAME))
+    filters = {timestamp_gte: past.isoformat()}
+    retain_representative_tweets(filters)

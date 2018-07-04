@@ -10,7 +10,15 @@ from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
+
 CHARS = ascii_lowercase + digits
+TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
+TS_LTE = settings.ES_TIMESTAMP_FIELD + '__lte'
+QUERY_TERMS = [
+    'ne', 'lt', 'lte', 'gt', 'gte', 'not', 'in', 'nin', 'mod', 'all', 'size',
+    'exists', 'exact', 'iexact', 'contains', 'icontains', 'startswith',
+    'istartswith', 'endswith', 'iendswith', 'match'
+    ]
 
 
 class MalformedValueError(Exception):
@@ -243,3 +251,93 @@ def convert_time_range(trange, tz=None):
             'Start date cannot be greater than the end date!'
             )
     return (ts_from, ts_to)
+
+
+def build_filters_time(filters):
+    """
+    Re-defines filters dict, taiking into account custom timestamp
+    filters: all keys in `filters` that contain ES_TIMESTAMP_FIELD
+    are being converted into the following form:
+    {
+        "range": {
+            "ES_TIMESTAMP_FIELD": {
+                "gte": <ISO datetime>,
+                "lte": <ISO datetime>,
+            }
+        }
+    }
+
+    :param filters: dict
+    :return: dict - modified filters.
+    """
+    def filter_exact(val):
+        ts, _ = localize_timestamp(val)
+        return {
+            TS_GTE: ts,
+            TS_LTE: ts + timezone.timedelta(minutes=1)
+            }
+
+    result = {}
+    for key, val in filters.items():
+        if not settings.ES_TIMESTAMP_FIELD in key:
+            continue
+
+        if '__' in key:
+            # "{ES_TIMESTAMP_FIELD}__exact" is not allowed! Use
+            # it as a lower limit, and get a value one minute
+            # later for a higher limit.
+            if '__exact' in key:
+                result.update(filter_exact(val))
+            else:
+                ts = get_parsed_datetime(val)
+                ts, _ = localize_timestamp(ts)
+                result[key] = ts
+            continue
+
+        # Process '{ES_TIMESTAMP_FIELD}='.
+        try:
+            _ = get_parsed_datetime(val)
+        except TypeError:
+            ts_from, ts_to = convert_time_range(val)
+            result.update({TS_GTE: ts_from, TS_LTE: ts_to})
+        else:
+            # The same as {ES_TIMESTAMP_FIELD}__exact.
+            result.update(filter_exact(val))
+
+    timestamp_range = {}
+    for key, val in result.items():
+        name = key.split('__')[1]
+        timestamp_range.update({name: val.isoformat()})
+    if timestamp_range:
+        timestamp_range = {"range": {settings.ES_TIMESTAMP_FIELD: timestamp_range}}
+
+    return timestamp_range
+
+
+def avg_coords(rec):
+    _lng, _lat = 0, 0
+    count = len(rec)
+    for each in rec:
+        _lng += rec[each]['lon']
+        _lat += rec[each]['lat']
+    return [_lng*1.0/count, _lat*1.0/count]
+
+
+def build_filters_geo(filters):
+    if not all([k in filters for k in settings.ES_BOUNDING_BOX_FIELDS]):
+        return {}
+
+    return {
+        "geo_bounding_box": {
+            "location": {
+                "top_left" : {
+                    "lat": float(filters["top_left_lat"]),
+                    "lon": float(filters["top_left_lon"])
+                    },
+                "bottom_right" : {
+                    "lat": float(filters["bottom_right_lat"]),
+                    "lon": float(filters["bottom_right_lon"])
+                    }
+                }
+            }
+        }

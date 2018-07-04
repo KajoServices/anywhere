@@ -230,13 +230,18 @@ LOGGING = {
 # number of document in a batch for scroll.
 ES_INDEX = 'anywhere_v1'
 ES_DOC_TYPE = 'tweet'
-ES_TIMESTAMP_FIELD = 'created_at'
 ES_SCROLL_BATCHSIZE = 5000
 ES_MAX_RESULTS = 5000
+ES_TIMESTAMP_FIELD = 'created_at'
+ES_GEO_FIELD = 'location'
+ES_BOUNDING_BOX_FIELDS = [
+    'top_left_lon', 'top_left_lat', 'bottom_right_lon', 'bottom_right_lat'
+    ]
+
 
 
 # Hotspots on the map
-HOTSPOT_MIN_ENTRIES = 2
+HOTSPOT_MIN_ENTRIES = 5
 HOTSPOTS_MAX_NUMBER = 1000
 # Available precision indexes:
 # https://www.elastic.co/guide/en/elasticsearch/reference/6.2//search-aggregations-bucket-geohashgrid-aggregation.html
@@ -261,6 +266,12 @@ WORLD_BORDERS = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
 
 # API settings
 API_LIMIT_PER_PAGE = 36
+
+
+# Representative tweets settings.
+#
+# Collect and segment incoming tweets every N minutes.
+SEGMENTER_TIMEFRAME = 5
 
 
 # Load local settings

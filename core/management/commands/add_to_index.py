@@ -4,8 +4,8 @@ Adding Twitter posts to index in ES.
 import optparse
 import json
 
-from dataman.normalizer import TweetNormalizer
-from dataman.elastic import ensure_mapping, create_or_update_index
+from dataman.processors import TweetNormalizer
+from dataman.elastic import ensure_mapping, create_or_update_doc
 
 
 def add_file_to_index(filename, **kwargs):
@@ -31,7 +31,7 @@ def add_file_to_index(filename, **kwargs):
         norm = TweetNormalizer(rec)
         doc = norm.normalize()
         try:
-            res = create_or_update_index(rec['tweetid'], doc)
+            res = create_or_update_doc(rec['tweetid'], doc)
         except Exception as err:
             print('ERROR: %s (%s)' % (err, rec['tweetid']))
         else:
