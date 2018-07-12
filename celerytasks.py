@@ -87,7 +87,8 @@ def run_index_update(timestamp):
     return report
 
 
-@periodic_task(run_every=datetime.timedelta(seconds=settings.CASSANDRA_BEAT))
+# XXX - stale code
+# @periodic_task(run_every=datetime.timedelta(seconds=settings.CASSANDRA_BEAT))
 def monitor_new_records():
     """
     Periodically start collecting new records for the last N hours.
@@ -107,7 +108,8 @@ def process_batch(batch):
     return results
 
 
-@periodic_task(run_every=crontab(hour=23))
+# XXX - should stay but not periodic!
+# @periodic_task(run_every=crontab(hour=23))
 def full_reindex():
     total = elastic.return_all()['hits']['total']
     batch_size = settings.ES_SCROLL_BATCHSIZE
