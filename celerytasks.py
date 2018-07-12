@@ -13,8 +13,8 @@ from celery.task.base import periodic_task
 from celery.task.schedules import crontab
 
 from dataman import cassandra, elastic
-from dataman.processors import TweetNormalizer, GeoClusterBuilder, \
-     categorize_repr_docs
+from dataman.processors import categorize_repr_docs, TweetNormalizer, \
+     ClusterBuilder, GeoClusterBuilder
 
 
 app = Celery('celerytasks')
@@ -128,16 +128,20 @@ def full_reindex():
     print(". [full_reindex] finished")
 
 
-def retain_representative_tweets(filters):
-    # Clustering tweets by geolocation.
-    result = GeoClusterBuilder('lang', **filters).get_clusters()
+def delete_retweets(*terms, **filters):
+    if settings.ES_GEO_FIELD in terms:
+        # Clustering tweets by geolocation.
+        terms = tuple(x for x in terms if x != settings.ES_GEO_FIELD)
+        cb = GeoClusterBuilder(*terms, **filters)
+    else:
+        cb = ClusterBuilder(*terms, **filters)
+    result = cb.get_clusters()
 
     # Select representative tweets for each cluster.
     for cluster in result["clusters"]:
         categorized = categorize_repr_docs(cluster["docs"])
-
-        for tweet in categorized["non_representative_tweets"]:
-            elastic.delete_doc(tweet["tweetid"])
+        for doc in categorized["non_representative_docs"]:
+            elastic.delete_doc(doc["_id"])
 
 
 @periodic_task(run_every=crontab(minute=settings.SEGMENTER_TIMEFRAME))
@@ -145,4 +149,4 @@ def task_retain_representative_tweets():
     timestamp_gte = settings.ES_TIMESTAMP_FIELD + '__gte'
     past = (timezone.now() - timezone.timedelta(minutes=settings.SEGMENTER_TIMEFRAME))
     filters = {timestamp_gte: past.isoformat()}
-    retain_representative_tweets(filters)
+    delete_retweets(filters)

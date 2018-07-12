@@ -355,12 +355,10 @@ class TweetNormalizer(object):
         return self.normalized
 
 
-class GeoClusterBuilder(object):
-    agg_key = "segments"
-
+class ClusterBuilder(object):
     def __init__(self, *terms, **filters):
         """
-        :terms: list of terms to group by (in addition to 'location')
+        :terms: list of terms to group by.
 
         :filters: dict of {field_name: val} to filter query results.
             Special keys:
@@ -370,12 +368,11 @@ class GeoClusterBuilder(object):
                     i.e. the least accurate for getting bigger clusters).
         """
         self.terms = terms
-        self.precision = filters.pop("precision", 1)
-
         match = filters.pop("search", None)
-        self.query = self._get_query(match)
+        self.match = self._get_match(match)
+        self.raw_filters = filters.copy()
         self.filters = self._get_filters(**filters)
-
+        self.query = {}
         self.errors = []
 
     @property
@@ -394,66 +391,79 @@ class GeoClusterBuilder(object):
     def filters(self, filters):
         self._filters = filters
 
-    def _get_query(self, match=None):
+    def _get_match(self, match=None):
         return QueryConverter(match).convert()
 
     def _get_filters(self, **filters):
         return FilterConverter(**filters).convert()
 
-    def _get_agg_query(self):
-        aggs = {
-            "cell": {
-                "geo_bounds": {
-                    "field": settings.ES_GEO_FIELD
+    def build_query(self, match=None, filters=None, size=settings.ES_MAX_RESULTS):
+        match = match or self.match
+        filters = filters or self.filters
+        qry = {
+            "query": {},
+            "size": size
+            }
+        if filters:
+            qry["query"].update({
+                "bool": {
+                    "must": match,
+                    "filter": filters
                     }
-                }
-            }
-        for term in self.terms:
-            key = "doc_count_{}".format(term)
-            if term in ES_KEYWORDS:
-                term = "{}.keyword".format(term)
-            aggs.update({key: {"terms": {"field": term}}})
+                })
+        else:
+            qry["query"].update(match)
 
+        return qry
+
+    def get_clusters(self, normalize_text=True):
+        self.query = self.build_query()
+        self.query = self.define_aggregations()
+        segments = self.get_segments(self.query)
         return {
-            self.agg_key: {
-                "geohash_grid": {
-                    "field": settings.ES_GEO_FIELD,
-                    "precision": self.precision,
-                    },
-                "aggs": aggs
-                }
+            "clusters": self.collect_clusters(segments, normalize_text),
+            "errors": self.errors
             }
 
-    def _check_lat_long(self, box):
+    def build_aggregation(self):
         """
-        Artificially extends geo point to a small box.
+        Builds nested aggregations according to the order of self.terms.
         """
-        if box["top_left_lat"] == box["bottom_right_lat"]:
-            box["top_left_lat"] += 0.001
-            box["bottom_right_lat"] -= 0.001
-        if box["top_left_lon"] == box["bottom_right_lon"]:
-            box["top_left_lon"] -= 0.001
-            box["bottom_right_lon"] += 0.001
-        return box
-        
-    def _buckets_to_segments(self, buckets):
-        """
-        Converts an ES buckets format to plain list of geo-cells.
-        """
-        segments = []
-        for bucket in buckets:
-            if bucket["doc_count"] < settings.HOTSPOT_MIN_ENTRIES:
-                continue
+        aggregations = {}
+        branch = aggregations
+        for term in self.terms:
+            assert term != settings.ES_GEO_FIELD, \
+              "Cannot aggregate by {}, use GeoClusterBuilder for this purpose!".format(settings.ES_GEO_FIELD)
 
-            local_filter = flatten_dict(bucket["cell"]["bounds"])
-            local_filter = self._check_lat_long(local_filter)
-            for term in self.terms:
-                term_name = "doc_count_{}".format(term)
-                for buck in bucket[term_name]["buckets"]:
-                    local_filter.update({term: buck["key"]})
-                    segments.append(local_filter)
+            name = "agg_{}".format(term)
+            if term == settings.ES_TIMESTAMP_FIELD:
+                agg = {
+                    name: {
+                        "date_histogram": {
+                            "field": term,
+                            "interval": self.raw_filters.get("interval", "5m")
+                            }
+                        }
+                    }
+            else:
+                if term in ES_KEYWORDS:
+                    term = "{}.keyword".format(term)
+                agg = {
+                    name: {
+                        "terms": {
+                            "field": term,
+                            }
+                        }
+                    }
+            branch.update({"aggregations": agg})
+            branch = branch["aggregations"][name]
 
-        return segments
+        return aggregations
+
+    def define_aggregations(self, query=None):
+        query = query or self.query
+        query.update(self.build_aggregation())
+        return query
 
     def _do_search(self, query):
         try:
@@ -465,32 +475,47 @@ class GeoClusterBuilder(object):
                 })
             return None
 
-    def build_query(self, query, filters):
-        return {
-            "query": {
-                "bool": {
-                    "must": query,
-                    "filter": filters
-                    }
-                },
-            "size": settings.ES_MAX_RESULTS
-            }
+    def _buckets_to_segments(self, segments, buckets, chunk, term, agg_keys):
+        for bucket in buckets:
+            chunk[term] = bucket["key"]
+            try:
+                agg_key = [k for k in bucket.keys() if k in agg_keys][0]
+            except IndexError:
+                if bucket["doc_count"] >= settings.HOTSPOT_MIN_ENTRIES:
+                    chunk_ = chunk.copy()
+                    segments.append(chunk_)
+            else:
+                self._buckets_to_segments(
+                    segments,
+                    bucket[agg_key]["buckets"],
+                    chunk,
+                    agg_key.split("_")[1],
+                    agg_keys
+                    )
+        return segments
 
     def get_segments(self, query):
         queryset = self._do_search(query)
         if queryset is None:
             return []
 
-        return self._buckets_to_segments(
-            queryset["aggregations"][self.agg_key]["buckets"]
-            )
+        segments = []
+        chunk = {}
+        keys = ["agg_{}".format(term) for term in self.terms]
+        key = "agg_{}".format(self.terms[0])
+        data = queryset["aggregations"][key]["buckets"]
+        term = self.terms[0]
+        return self._buckets_to_segments(segments, data, chunk, term, keys)
 
     def collect_clusters(self, segments, normalize_text):
         clusters = []
         for segment in segments:
-            segment_filters = self.filters.copy()
-            segment_filters.extend(self._get_filters(**segment))
-            query = self.build_query(self.query, segment_filters)
+            # Replace geo_bounding_box in self.filters with a box
+            # that defines a current segment.
+            segment_filters = self.raw_filters.copy()
+            segment_filters.update(segment)
+            segment_filters = self._get_filters(**segment_filters)
+            query = self.build_query(filters=segment_filters)
             queryset = self._do_search(query)
             if queryset is None:
                 continue
@@ -516,12 +541,124 @@ class GeoClusterBuilder(object):
         return clusters
 
     def get_clusters(self, normalize_text=True):
-        qry = self.build_query(self.query, self.filters)
-        qry.update({
-            "aggregations": self._get_agg_query()
-            })
-        segments = self.get_segments(qry)
-        return {
-            "clusters": self.collect_clusters(segments, normalize_text),
-            "errors": self.errors
+        self.query = self.build_query()
+        self.query = self.define_aggregations()
+        segments = self.get_segments(self.query)
+        self.clusters = self.collect_clusters(segments, normalize_text)
+        return RecordDict(clusters=self.clusters, errors=self.errors)
+
+
+class GeoClusterBuilder(ClusterBuilder):
+    def __init__(self, *terms, **filters):
+        """
+        :terms: list of terms to group by (in addition to 'location')
+
+        :filters: dict of {field_name: val} to filter query results.
+            Special keys:
+                  - 'search' is to search by keyword. The absense of
+                    this key means {"match_all": {}}.
+                  - 'precision' defines geohash precision (by default 1,
+                    i.e. the least accurate for getting bigger clusters).
+        """
+        super().__init__(*terms, **filters)
+        self.precision = filters.pop("precision", 1)
+        self.segments_fieldname = "segments"
+
+    def build_aggregation(self):
+        aggs = {
+            "cell": {
+                "geo_bounds": {
+                    "field": settings.ES_GEO_FIELD
+                    }
+                }
             }
+        for term in self.terms:
+            key = "doc_count_{}".format(term)
+            if term in ES_KEYWORDS:
+                term = "{}.keyword".format(term)
+            aggs.update({key: {"terms": {"field": term}}})
+
+        return {
+            "aggregations": {
+                self.segments_fieldname: {
+                    "geohash_grid": {
+                        "field": settings.ES_GEO_FIELD,
+                        "precision": self.precision,
+                        },
+                    "aggs": aggs
+                    }
+                }
+            }
+
+    def _check_lat_long(self, box):
+        """
+        Artificially extends geo point to a small box.
+        """
+        if box["top_left_lat"] == box["bottom_right_lat"]:
+            box["top_left_lat"] += 0.001
+            box["bottom_right_lat"] -= 0.001
+        if box["top_left_lon"] == box["bottom_right_lon"]:
+            box["top_left_lon"] -= 0.001
+            box["bottom_right_lon"] += 0.001
+        return box
+
+    def collect_clusters(self, segments, normalize_text):
+        clusters = []
+        for segment in segments:
+            # Replace geo_bounding_box in self.filters with a box
+            # that defines a current segment.
+            segment_filters = self.raw_filters.copy()
+            segment_filters.update(segment)
+            segment_filters = self._get_filters(**segment_filters)
+            query = self.build_query(filters=segment_filters)
+            queryset = self._do_search(query)
+            if queryset is None:
+                continue
+
+            # Cluster is a collection of more than N docs.
+            if queryset["hits"]["total"] < settings.HOTSPOT_MIN_ENTRIES:
+                continue
+
+            docs = []
+            for doc in queryset["hits"]["hits"]:
+                # Retain only fields necessary for text analysis.
+                doc = RecordDict(
+                    _id=doc["_id"],
+                    text=doc["_source"]["text"],
+                    tokens=doc["_source"]["tokens"]
+                    )
+                if normalize_text:
+                    doc.update(_normalized_text=normalize_aggressive(doc.text))
+                docs.append(doc)
+            segment.update({"docs": docs})
+            clusters.append(segment)
+
+        return clusters
+
+    def _buckets_to_segments(self, buckets):
+        """
+        Converts an ES buckets format to plain list of geo-cells.
+        """
+        segments = []
+        for bucket in buckets:
+            if bucket["doc_count"] < settings.HOTSPOT_MIN_ENTRIES:
+                continue
+
+            local_filter = flatten_dict(bucket["cell"]["bounds"])
+            local_filter = self._check_lat_long(local_filter)
+            for term in self.terms:
+                term_name = "doc_count_{}".format(term)
+                for buck in bucket[term_name]["buckets"]:
+                    local_filter.update({term: buck["key"]})
+                    segments.append(local_filter)
+
+        return segments
+
+    def get_segments(self, query):
+        queryset = self._do_search(query)
+        if queryset is None:
+            return []
+
+        return self._buckets_to_segments(
+            queryset["aggregations"][self.segments_fieldname]["buckets"]
+            )

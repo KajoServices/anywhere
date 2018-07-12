@@ -294,7 +294,7 @@ def search_id(id_):
     return res
 
 
-def return_all(size=100):
+def return_all(size=settings.ES_MAX_RESULTS):
     return search({"query": {"match_all": {}}, 'size': size})
 
 
