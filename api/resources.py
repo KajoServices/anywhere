@@ -15,8 +15,8 @@ from tastypie import http
 
 from .auth import StaffAuthorization
 from analytics.collectors.semantic import get_graph
-from dataman.processors import TweetNormalizer, normalize_aggressive, \
-     categorize_repr_docs
+from dataman.processors import ClusterBuilder, GeoClusterBuilder, \
+     TweetNormalizer, normalize_aggressive, categorize_repr_docs
 from dataman.elastic import search, create_or_update_doc, delete_doc, \
      FilterConverter, ES_KEYWORDS
 from core.utils import RecordDict, flatten_list, avg_coords, QUERY_TERMS
@@ -457,7 +457,7 @@ class TweetResource(Resource):
 class CategorizedTweetResource(TweetResource):
     class Meta:
         resource_name = 'tweet_categorized'
-        list_allowed_methods = ('get',)
+        list_allowed_methods = ('get', 'delete')
         detail_uri_name = 'tweetid'
         detail_allowed_methods = []
         filtering = {
@@ -481,34 +481,103 @@ class CategorizedTweetResource(TweetResource):
         authorization = StaffAuthorization()
         authentication = ApiKeyAuthentication()
 
-    def alter_list_data_to_serialize(self, request, data):
-        def reduce_categorized(doc):
-            doc_reduced = dict((k, doc[k]) for k in doc.keys() if k in ("_id", "text"))
-            return RecordDict(**doc_reduced)
-            
+    def _prepare_categorized(self, container):
+        for key in container.keys():
+            container[key] = [
+                RecordDict(**{
+                    "_id": doc["_id"],
+                    "text": doc["text"],
+                    "_multiplicity": doc["_multiplicity"],
+                    "_centrality": doc["_centrality"]
+                    })
+                for doc in container[key]
+                ]
+        return container
+
+    def _categorize_list(self, objects):
+        """
+        Categorizes list of objects to 'representative' and non-representative'.
+        """
         docs = []
-        for obj in data['objects']:
-            doc = obj.obj.copy()
+        for obj in objects:
+            # This can either be bundle or object.
+            try:
+                doc = obj.obj.copy()
+            except AttributeError:
+                doc = obj.copy()
             doc.update({
-                "_id": getattr(obj.obj, self._meta.detail_uri_name),
-                "_normalized_text": normalize_aggressive(obj.obj.text)
+                "_id": doc[self._meta.detail_uri_name],
+                "_normalized_text": normalize_aggressive(doc["text"])
                 })
             docs.append(doc)
-        
         categorized = categorize_repr_docs(docs)
-        representative_docs = []
-        for doc in categorized["representative_docs"]:
-            representative_docs.append(reduce_categorized(doc))
+        prepared = self._prepare_categorized(categorized)
+        return [{"docs": prepared}]
 
-        non_representative_docs = []
-        for doc in categorized["non_representative_docs"]:
-            non_representative_docs.append(reduce_categorized(doc))
+    def _categorize_clusters(self, request, terms):
+        """
+        Categorizes documents to 'representative' and non-representative',
+        seperating them to segments given by terms (procided by user).
 
-        data.update(
-            representative_docs=representative_docs,
-            non_representative_docs=non_representative_docs
-            )
+        Does not require list of objects, operates on user-provided filters.
+        """
+        filters = request.GET.dict()
+        if settings.ES_GEO_FIELD in terms:
+            # Clustering tweets by geolocation is different.
+            terms = tuple(x for x in terms if x != settings.ES_GEO_FIELD)
+            cb = GeoClusterBuilder(*terms, **filters)
+        else:
+            cb = ClusterBuilder(*terms, **filters)
+        clusters = cb.get_clusters()
+
+        # Select representative tweets for each cluster.
+        for cluster in clusters.clusters:
+            categorized = categorize_repr_docs(cluster["docs"])
+            cluster["docs"] = self._prepare_categorized(categorized)
+        return clusters.clusters
+
+    def _categorize(self, request, objects):
+        terms = request.GET.get('terms', '')
+        if isinstance(terms, str):
+            terms = [x.strip() for x in terms.split(',') if x.strip() != '']
+        assert type(terms) in [list, tuple], \
+            "Wrong terms type! Must be list or tuple!"
+
+        if terms:
+            categorized = self._categorize_clusters(request, terms)
+        else:
+            categorized = self._categorize_list(objects)
+        return categorized
+
+    def alter_list_data_to_serialize(self, request, data):
+        if request.method != 'GET':
+            return data
+
+        categorized = self._categorize(request, data['objects'])
+        data.update(categorized=categorized)
         return data
+
+    def obj_delete_list(self, bundle, **kwargs):
+        objects_list = self.obj_get_list(bundle=bundle, **kwargs)
+        categorized = self._categorize(bundle.request, objects_list)
+        ids_to_delete = []
+        for cluster in categorized:
+            for doc in cluster["docs"]["non_representative_docs"]:
+                ids_to_delete.append(doc["_id"])
+
+        objects_to_delete = [x for x in objects_list if x["tweetid"] in ids_to_delete]
+        deletable_objects = self.authorized_delete_list(objects_to_delete, bundle)
+        if hasattr(deletable_objects, 'delete'):
+            # It's likely a ``QuerySet``. Call ``.delete()`` for efficiency.
+            deletable_objects.delete()
+        else:
+            for authed_obj in deletable_objects:
+                try:
+                    result = delete_doc(authed_obj["tweetid"])
+                except Exception as err:
+                    log_and_raise_400(err)
+                else:
+                    log_all_ok(result, authed_obj["tweetid"])
 
 
 class CountryResource(Resource):

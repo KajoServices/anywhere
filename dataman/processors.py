@@ -603,6 +603,9 @@ class GeoClusterBuilder(ClusterBuilder):
         return box
 
     def collect_clusters(self, segments, normalize_text):
+        """
+        Adapted to segment by geo-location.
+        """
         clusters = []
         for segment in segments:
             # Replace geo_bounding_box in self.filters with a box
@@ -641,16 +644,17 @@ class GeoClusterBuilder(ClusterBuilder):
         """
         segments = []
         for bucket in buckets:
-            if bucket["doc_count"] < settings.HOTSPOT_MIN_ENTRIES:
-                continue
-
             local_filter = flatten_dict(bucket["cell"]["bounds"])
             local_filter = self._check_lat_long(local_filter)
             for term in self.terms:
                 term_name = "doc_count_{}".format(term)
                 for buck in bucket[term_name]["buckets"]:
-                    local_filter.update({term: buck["key"]})
-                    segments.append(local_filter)
+                    if buck["doc_count"] < settings.HOTSPOT_MIN_ENTRIES:
+                        continue
+
+                    local_flt = local_filter.copy()
+                    local_flt.update({term: buck["key"]})
+                    segments.append(local_flt)
 
         return segments
 
