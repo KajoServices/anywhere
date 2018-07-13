@@ -364,8 +364,6 @@ class ClusterBuilder(object):
             Special keys:
                   - 'search' is to search by keyword. The absense of
                     this key means {"match_all": {}}.
-                  - 'precision' defines geohash precision (by default 1,
-                    i.e. the least accurate for getting bigger clusters).
         """
         self.terms = terms
         match = filters.pop("search", None)
@@ -557,11 +555,11 @@ class GeoClusterBuilder(ClusterBuilder):
             Special keys:
                   - 'search' is to search by keyword. The absense of
                     this key means {"match_all": {}}.
-                  - 'precision' defines geohash precision (by default 1,
+                  - 'precision' defines geohash precision (by default 5,
                     i.e. the least accurate for getting bigger clusters).
         """
         super().__init__(*terms, **filters)
-        self.precision = filters.pop("precision", 1)
+        self.precision = filters.pop("precision", 5)
         self.segments_fieldname = "segments"
 
     def build_aggregation(self):
