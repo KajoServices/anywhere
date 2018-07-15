@@ -190,7 +190,15 @@ LOGGING = {
             'maxBytes': 1024*1024*10, # 10 MB
             'backupCount': 1,
             'formatter': 'semiverbose',
-        }
+        },
+        'elasticsearch': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': rel('log', 'app_elasticsearch.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 1,
+            'formatter': 'simple',
+        },
     },
     'root': {
         'handlers': ['console'],
@@ -222,7 +230,12 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
-    },
+        'elasticsearch': {
+            'handlers': ['elasticsearch'],
+            'level': 'DEBUG',
+            'propagate': False,
+        }
+    }
 }
 
 

@@ -17,8 +17,8 @@ from .auth import StaffAuthorization
 from analytics.collectors.semantic import get_graph
 from dataman.processors import ClusterBuilder, GeoClusterBuilder, \
      TweetNormalizer, normalize_aggressive, categorize_repr_docs
-from dataman.elastic import search, create_or_update_doc, delete_doc, \
-     FilterConverter, ES_KEYWORDS
+from dataman.elastic import create_or_update_doc, delete_doc, update_doc, \
+     search, FilterConverter, ES_KEYWORDS
 from core.utils import RecordDict, flatten_list, avg_coords, QUERY_TERMS
 
 
@@ -125,6 +125,7 @@ class TweetResource(Resource):
             'flood_probability': ('gte',),
             'lang': ('exact',),
             'country': ('exact',),
+            'representative': ('exact',),
             }
         ordering = [
             settings.ES_TIMESTAMP_FIELD,
@@ -291,7 +292,7 @@ class TweetResource(Resource):
         """
         body = {
             "query": {
-                "bool" : {
+                "bool": {
                     "must": self.match,
                     "filter": self.filters
                     }
@@ -557,9 +558,7 @@ class CategorizedTweetResource(TweetResource):
         data.update(categorized=categorized)
         return data
 
-    def obj_delete_list(self, bundle, **kwargs):
-        objects_list = self.obj_get_list(bundle=bundle, **kwargs)
-        categorized = self._categorize(bundle.request, objects_list)
+    def _delete_docs(self, objects_list, categorized):
         ids_to_delete = []
         for cluster in categorized:
             for doc in cluster["docs"]["non_representative_docs"]:
@@ -578,6 +577,20 @@ class CategorizedTweetResource(TweetResource):
                     log_and_raise_400(err)
                 else:
                     log_all_ok(result, authed_obj["tweetid"])
+
+    def obj_delete_list(self, bundle, **kwargs):
+        objects_list = self.obj_get_list(bundle=bundle, **kwargs)
+        categorized = self._categorize(bundle.request, objects_list)
+
+        # Mark categorized docs
+        for cluster in categorized:
+            for doc in cluster["docs"]["non_representative_docs"]:
+                update_doc(doc["_id"], representative=False)
+            for doc in cluster["docs"]["representative_docs"]:
+                update_doc(doc["_id"], representative=True)
+
+        # XXX actual deletion
+        # self._delete_docs(objects_list, categorized)
 
 
 class CountryResource(Resource):

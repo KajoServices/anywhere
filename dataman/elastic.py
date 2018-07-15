@@ -16,20 +16,20 @@ es = Elasticsearch(
     )
 
 ES_INDEX_MAPPING = {
-    'properties': {
-        'created_at': {
-            'type': 'date'
+    "properties": {
+        "created_at": {
+            "type": "date"
         },
-        'flood_probability': {
-            'type': 'float'
+        "flood_probability": {
+            "type": "float"
         },
-        'location': {
-            'type': 'geo_point'
+        "location": {
+            "type": "geo_point"
         },
-        'text': {
-            'type': 'text',
+        "text": {
+            "type": "text",
         },
-        'user_id': {
+        "user_id": {
             "type": "long"
         },
         "user_created_at": {
@@ -113,7 +113,7 @@ ES_INDEX_MAPPING = {
         "user_utc_offset": {
             "type": "long"
         },
-        'tweetid': {
+        "tweetid": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -122,10 +122,10 @@ ES_INDEX_MAPPING = {
                 }
             }
         },
-        'flood_probability': {
+        "flood_probability": {
             "type": "float"
         },
-        'country': {
+        "country": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -134,7 +134,7 @@ ES_INDEX_MAPPING = {
                 }
             }
         },
-        'text': {
+        "text": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -143,7 +143,7 @@ ES_INDEX_MAPPING = {
                 }
             }
         },
-        'lang': {
+        "lang": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -152,7 +152,7 @@ ES_INDEX_MAPPING = {
                 }
             }
         },
-        'place': {
+        "place": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -161,7 +161,10 @@ ES_INDEX_MAPPING = {
                 }
             }
         },
-        'tokens': {
+        "representative": {
+            "type": "boolean"
+        },
+        "tokens": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -170,7 +173,7 @@ ES_INDEX_MAPPING = {
                 }
             }
         },
-        'media_urls': {
+        "media_urls": {
             "type": "text",
             "fields": {
                 "keyword": {
@@ -183,7 +186,7 @@ ES_INDEX_MAPPING = {
 }
 
 ES_KEYWORDS = [
-    key for key, mp in ES_INDEX_MAPPING['properties'].items()
+    key for key, mp in ES_INDEX_MAPPING["properties"].items()
     if get_val_by_path("fields/keyword/type", **mp) == "keyword"
     ]
 
@@ -201,7 +204,7 @@ def put_mapping(body):
 
 
 def ensure_mapping():
-    body = {'mappings': {settings.ES_DOC_TYPE: ES_INDEX_MAPPING}}
+    body = {"mappings": {settings.ES_DOC_TYPE: ES_INDEX_MAPPING}}
     try:
         mapping = es.indices.get_mapping(
             index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE
@@ -213,7 +216,7 @@ def ensure_mapping():
             try:
                 mapping = put_mapping(ES_INDEX_MAPPING)
             except Exception as err:
-                print('! [ensure_mapping] {}: {}'.format(type(err), err))
+                print("! [ensure_mapping] {}: {}".format(type(err), err))
     return mapping
 
 
@@ -242,7 +245,7 @@ def _do_create_or_update_doc(id_, body):
 @index_required
 def create_or_update_doc(id_, body):
     response = _do_create_or_update_doc(id_, body)
-    return response['result']
+    return response["result"]
 
 
 @index_required
@@ -250,7 +253,7 @@ def delete_doc(id_):
     response = es.delete(
         index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE, id=id_
         )
-    return response['result']
+    return response["result"]
 
 
 @index_required
@@ -259,7 +262,7 @@ def search(query, scroll=False):
         if scroll:
             response = es.search(
                 index=settings.ES_INDEX, doc_type=settings.ES_DOC_TYPE,
-                body=query, scroll='1m'
+                body=query, scroll="1m"
                 )
         else:
             response = es.search(
@@ -275,7 +278,7 @@ def search(query, scroll=False):
 @index_required
 def scroll(scroll_id):
     try:
-        response = es.scroll(scroll_id=scroll_id, scroll='1m')
+        response = es.scroll(scroll_id=scroll_id, scroll="1m")
     except Exception as exc:
         return None
     else:
@@ -283,19 +286,28 @@ def scroll(scroll_id):
 
 
 def search_id(id_):
-    query = {'query': {'match' : {'_id': id_}}}
+    query = {"query": {"match" : {"_id": id_}}}
     res = search(query)
     if res is None:
         return None
 
-    if res['hits']['total'] == 0:
+    if res["hits"]["total"] == 0:
         return None
 
     return res
 
 
+@index_required
+def update_doc(id_, **data):
+    res = search_id(id_)
+    doc = res["hits"]["hits"][0]["_source"]
+    doc.update(data)
+    response = create_or_update_doc(id_, doc)
+    return response
+
+
 def return_all(size=settings.ES_MAX_RESULTS):
-    return search({"query": {"match_all": {}}, 'size': size})
+    return search({"query": {"match_all": {}}, "size": size})
 
 
 @index_required
@@ -335,13 +347,13 @@ def get_coords(rec):
     # Simple point
     try:
         # Reverting coordinates as they're mixed up.
-        return rec['coordinates']
+        return rec["coordinates"]
     except KeyError:
         pass
 
     src = get_val_by_path(
-        'place/bounding_box/coordinates',
-        'location/geo/coordinates',
+        "place/bounding_box/coordinates",
+        "location/geo/coordinates",
         **rec
         )
     # Approximate point from list of points
@@ -354,24 +366,24 @@ def get_coords(rec):
 
 
 @index_required
-def analyze_text(text, lang='en'):
+def analyze_text(text, lang="en"):
     analyzers = {
-        'en': 'english',
-        'es': 'spanish',
-        'fr': 'french',
-        'it': 'italian'
+        "en": "english",
+        "es": "spanish",
+        "fr": "french",
+        "it": "italian"
         }
     try:
         analyzer = analyzers[lang]
     except KeyError:
-        analyzer = 'standard'
+        analyzer = "standard"
     body = {
-        'filter' : ['lowercase'],
-        'analyzer' : analyzer,
-        'text' : text
+        "filter" : ["lowercase"],
+        "analyzer" : analyzer,
+        "text" : text
         }
     resp = es.indices.analyze(settings.ES_INDEX, body=body)
-    return [x['token'] for x in resp['tokens']]
+    return [x["token"] for x in resp["tokens"]]
 
 
 def clean_tweet_text(text):
@@ -382,7 +394,7 @@ def clean_tweet_text(text):
     return text.strip()
 
 
-def tokenize(text, lang='en'):
+def tokenize(text, lang="en"):
     # TODO:
     #     - remove adverbs, prepositions, etc.
     text = clean_tweet_text(text)
@@ -392,7 +404,7 @@ def tokenize(text, lang='en'):
     tokens = list(set(tokens))
 
     # Remove single characters and twitter-specific strings
-    not_allowed = ['rt', 'http', 'https', 'ftp']
+    not_allowed = ["rt", "http", "https", "ftp"]
     tokens = [
         t for t in tokens
         if (t.lower().strip() not in not_allowed)
@@ -427,7 +439,7 @@ class FilterConverter(object):
         """
         self.input_filters = filters
         self.keywords = ES_KEYWORDS
-        self.schema = ES_INDEX_MAPPING['properties']
+        self.schema = ES_INDEX_MAPPING["properties"]
 
     def fill_keywords(self, keywords=None):
         if not keywords:
@@ -479,7 +491,7 @@ class FilterConverter(object):
                     })
             else:
                 if field_name in self.keywords:
-                    field_name = '{}.keyword'.format(field_name)
+                    field_name = "{}.keyword".format(field_name)
 
                 es_filters.append({
                     "term": {

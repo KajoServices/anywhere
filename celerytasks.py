@@ -142,8 +142,14 @@ def delete_retweets(*terms, **filters):
     # Select representative tweets for each cluster.
     for cluster in result["clusters"]:
         categorized = categorize_repr_docs(cluster["docs"])
+
+        # XXX update "representative" flag instead of delete.
         for doc in categorized["non_representative_docs"]:
-            elastic.delete_doc(doc["_id"])
+            elastic.update_doc(doc["_id"], reprsentative=False)
+            # elastic.delete_doc(doc["_id"])
+
+        for doc in categorized["representative_docs"]:
+            elastic.update_doc(doc["_id"], reprsentative=True)
 
 
 @periodic_task(run_every=crontab(minute=settings.SEGMENTER_TIMEFRAME))
