@@ -152,9 +152,9 @@ def delete_retweets(*terms, **filters):
             elastic.update_doc(doc["_id"], reprsentative=True)
 
 
-@periodic_task(run_every=crontab(minute=settings.SEGMENTER_TIMEFRAME))
+@periodic_task(run_every=crontab(minute=settings.STREAM_TIMEFRAME))
 def task_retain_representative_tweets():
     timestamp_gte = settings.ES_TIMESTAMP_FIELD + '__gte'
-    past = (timezone.now() - timezone.timedelta(minutes=settings.SEGMENTER_TIMEFRAME))
+    past = (timezone.now() - timezone.timedelta(minutes=settings.STREAM_TIMEFRAME))
     filters = {timestamp_gte: past.isoformat()}
     delete_retweets(filters)
