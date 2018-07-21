@@ -284,7 +284,7 @@ API_LIMIT_PER_PAGE = 36
 # Representative tweets settings.
 #
 # Collect and segment incoming tweets every N minutes.
-STREAM_TIMEFRAME = 5
+STREAM_TIMEFRAME = 15
 
 
 # Load local settings
