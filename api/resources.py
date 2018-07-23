@@ -13,7 +13,7 @@ from tastypie.exceptions import ImmediateHttpResponse, InvalidFilterError, \
 from tastypie import fields
 from tastypie import http
 
-from .auth import StaffAuthorization
+from .auth import StaffAuthorization, UserAuthorization
 from analytics.collectors.semantic import get_graph
 from dataman.processors import ClusterBuilder, GeoClusterBuilder, \
      TweetNormalizer, normalize_aggressive, categorize_repr_docs
@@ -140,7 +140,7 @@ class TweetResource(Resource):
             "text", "tokens", "place", "user_name",
             "user_location", "user_description",
             ]
-        authorization = StaffAuthorization()
+        authorization = UserAuthorization()
         authentication = ApiKeyAuthentication()
 
     def normalize_object(self, bundle):

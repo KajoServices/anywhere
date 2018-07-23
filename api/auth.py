@@ -8,6 +8,9 @@ from tastypie.authorization import Authorization
 from tastypie.exceptions import Unauthorized
 
 
+MSG_UNAUTHORIZED = "You cannot do this, sorry. Only admins are allowed to perform this operation."
+
+
 class CookieBasicAuthentication(BasicAuthentication):
     """
     If the user is already authenticated by a django session it will
@@ -28,6 +31,66 @@ class CookieBasicAuthentication(BasicAuthentication):
                 )
                 return True
         return self.super_self.is_authenticated(request, **kwargs)
+
+
+class UserAuthorization(Authorization):
+    """
+    Authorization of ordinary users.
+    """
+    def authorized(self, object_list, bundle):
+        """Checks if a user is superuser of staff member."""
+        user = bundle.request.user
+        try:
+            return user.is_active
+        except AttributeError:
+            raise Unauthorized(_('You have to authenticate first!'))
+
+    def authorized_list_auth(self, object_list, bundle):
+        """
+        Returns object_list for superusers or staff members,
+        otherwise returns empty list.
+        """
+        if self.authorized(object_list, bundle):
+            return object_list
+        return []
+
+    def read_list(self, object_list, bundle):
+        """
+        Returns data from object_list for superusers or staff members.
+        This assumes a QuerySet from ModelResource, therefore tries to return
+        .all(), or original object_list in case of failure.
+        """
+        try:
+            object_list = object_list.all()
+        except AttributeError:
+            # list or dict don't have .all()
+            pass
+        return self.authorized_list_auth(object_list, bundle)
+
+    def read_detail(self, object_list, bundle):
+        if bundle.request.user.is_anonymous:
+            # Double-check anonymous users, because operations
+            # on embedded fields do not pass through authentication.
+            ApiKeyAuthentication().is_authenticated(bundle.request)
+        return self.authorized(object_list, bundle)
+
+    def create_list(self, object_list, bundle):
+        raise Unauthorized(_(MSG_UNAUTHORIZED))
+
+    def create_detail(self, object_list, bundle):
+        raise Unauthorized(_(MSG_UNAUTHORIZED))
+
+    def update_list(self, object_list, bundle):
+        raise Unauthorized(_(MSG_UNAUTHORIZED))
+
+    def update_detail(self, object_list, bundle):
+        raise Unauthorized(_(MSG_UNAUTHORIZED))
+
+    def delete_list(self, object_list, bundle):
+        raise Unauthorized(_(MSG_UNAUTHORIZED))
+
+    def delete_detail(self, object_list, bundle):
+        raise Unauthorized(_(MSG_UNAUTHORIZED))
 
 
 class StaffAuthorization(Authorization):
