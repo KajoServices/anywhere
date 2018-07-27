@@ -4,6 +4,7 @@ import os
 import sys
 import pytest
 from importlib import import_module
+from uuid import uuid4
 
 
 # Insert current directory to the top in os.path for relative paths.
@@ -144,3 +145,10 @@ def uclient(client, test_user, rf):
 def aclient(client, admin_user, rf):
     """Client instance with logged in admin"""
     return uclient(client, admin_user, rf)
+
+
+# @pytest.fixture
+# def elastic_client():
+#     es = settings.ES_CLIENT
+#     yield es
+#     es.indices.delete(index=settings.ES_INDEX, ignore=[400, 404])

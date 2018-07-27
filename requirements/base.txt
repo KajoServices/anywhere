@@ -26,8 +26,10 @@ djangorestframework==3.8.2
 dpath==1.4.2
 draftjs-exporter==2.1.2
 elasticsearch==6.2.0
+elasticsearch-dsl==6.2.1
 html5lib==1.0.1
 idna==2.6
+ipaddress==1.0.22
 kombu==4.1.0
 l18n==2016.6.4
 langdetect==1.0.7

@@ -13,18 +13,28 @@ from tastypie.exceptions import ImmediateHttpResponse, InvalidFilterError, \
 from tastypie import fields
 from tastypie import http
 
-from .auth import StaffAuthorization, UserAuthorization
 from analytics.collectors.semantic import get_graph
 from dataman.processors import ClusterBuilder, GeoClusterBuilder, \
      TweetNormalizer, normalize_aggressive, categorize_repr_docs
 from dataman.elastic import create_or_update_doc, delete_doc, update_doc, \
      search, FilterConverter, ES_KEYWORDS
-from core.utils import RecordDict, flatten_list, avg_coords, QUERY_TERMS
+from core.utils import RecordDict, flatten_list, avg_coords, \
+     MalformedValueError, QUERY_TERMS
+from .auth import StaffAuthorization, UserAuthorization
 
 
 LOG = logging.getLogger('tweet')
 MSG_KEYS = ('info', 'warning', 'error',)
 DATE_FILTERS = ('exact', 'lt', 'lte', 'gte', 'gt', 'ne')
+GEOJSON_HEADER = {
+    "type": "FeatureCollection",
+    "crs": {
+        "type": "name",
+        "properties": {
+            "name": settings.GEO_CRS
+            }
+        }
+    }
 
 
 def log_and_raise_400(err):
@@ -39,7 +49,7 @@ def log_all_ok(result, _id, created_at=None):
         LOG.info("{}: {}".format(result, _id))
 
 
-def prepare_buckets(key, buckets, **filters):
+def prepare_buckets(key, buckets):
     """
     Re-formats buckets for cleaner look.
     """
@@ -101,13 +111,26 @@ class EdgeBundleResource(Resource):
         return data
 
 
+class GeoJsonResource(Resource):
+    def alter_list_data_to_serialize(self, request, data):
+        """
+        Re-formats output to meet GeoJSON standard.
+        """
+        data.update(GEOJSON_HEADER)
+
+        # Rename "objects" to meet GeoJSON format.
+        if settings.API_OBJECTS_KEY != "objects":
+            data[settings.API_OBJECTS_KEY] = data["objects"]
+            del data["objects"]
+
+        return data
+
+
 # TODO
-# * self.fields is optimised for POST now. Re-factor it for GET
-#   (less headache with filtering and hydrate)
 # * use ES pagination - see
 #   https://www.elastic.co/guide/en/elasticsearch/reference/6.1/search-request-from-size.html
 # * `tokens` should include synonyms
-class TweetResource(Resource):
+class TweetResource(GeoJsonResource):
     tweetid = fields.CharField()
     created_at = fields.DateTimeField()
     annotations = fields.DictField()
@@ -142,6 +165,16 @@ class TweetResource(Resource):
             ]
         authorization = UserAuthorization()
         authentication = ApiKeyAuthentication()
+
+    def __init__(self, *args, **kwargs):
+        """
+        Adding internal attributesfor filtering, sorting, aggregation, etc.
+        """
+        super().__init__(*args, **kwargs)
+        self.match = {}
+        self.filters = {}
+        self.sort = {}
+        self.aggregate = {}
 
     def normalize_object(self, bundle):
         try:
@@ -243,25 +276,10 @@ class TweetResource(Resource):
         """
         Re-formats output to meet GeoJSON standard.
         """
-        # Add header required by GeoJSON.
-        data.update({
-            "type": "FeatureCollection",
-            "crs": {
-                "type": "name",
-                "properties": {
-                    "name": "EPSG:4326"
-                    }
-                }
-            })
-
-        # Rename "objects" to meet GeoJSON format.
-        data["features"] = data["objects"]
-        del data["objects"]
-
+        data = super().alter_list_data_to_serialize(request, data)
         # Append aggregations if any.
         if self.aggregations:
             data.update({"aggregations": self.aggregations})
-
         return data
 
     def collect_aggregations(self, queryset):
@@ -272,7 +290,7 @@ class TweetResource(Resource):
             except Exception as err:
                 raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
 
-            buckets = prepare_buckets(key, buckets, **self.filters)
+            buckets = prepare_buckets(key, buckets)
             aggregations.update({key: buckets})
 
         return aggregations
@@ -290,18 +308,30 @@ class TweetResource(Resource):
         :param:sort - list, format:
             [{"fieldname": {"order": "asc|desc"}}, {...}]
         """
-        body = {
-            "query": {
+        body = {}
+
+        if self.sort:
+            body.update({"sort": self.sort})
+
+        # Apply filters (if any).
+        if self.filters:
+            query = {
                 "bool": {
                     "must": self.match,
                     "filter": self.filters
                     }
-                },
-            "sort": self.sort,
-            "size": settings.ES_MAX_RESULTS
-            }
+                }
+        else:
+            query = self.match
+        body.update({"query": query})
+
+        # Adding aggregations.
         if self.aggregate:
             body.update({"aggregations": self.aggregate})
+
+        # Hard limit.
+        size = request.GET.get("size", settings.API_LIMIT_PER_PAGE)
+        body.update({"size": size})
 
         queryset = search(body)
 
@@ -312,8 +342,9 @@ class TweetResource(Resource):
         docs = []
         for hit in queryset['hits']['hits']:
             obj = RecordDict(**hit['_source'])
-            obj.update({'score': hit['_score']})
+            obj.update({'score': hit['_score'] or 0})
             docs.append(obj)
+
         return docs
 
     def build_query(self, **filters):
@@ -329,14 +360,28 @@ class TweetResource(Resource):
             }
 
     def build_filters(self, **filters):
+        es_filters = {}
         converter = FilterConverter(**filters)
         keywords = ['annotations', 'resource_uri', 'user_id']
-        es_filters = converter.convert(
-            schema=self._meta.filtering, keywords=keywords
-            )
-        return {"bool": {"must": es_filters}}
+        try:
+            converted_filters = converter.convert(
+                schema=self._meta.filtering, keywords=keywords
+                )
+        except MalformedValueError as err:
+            raise ImmediateHttpResponse(response=http.HttpBadRequest(err))
+
+        if len(converted_filters) > 1:
+            es_filters.update({"bool": {"must": converted_filters}})
+        elif converted_filters:
+            es_filters.update(converted_filters[0])
+
+        return es_filters
 
     def get_order_by(self, **kwargs):
+        size = int(kwargs.get('size', settings.ES_MAX_RESULTS))
+        if ("search" in kwargs) or (size == 0):
+            return []
+
         order_by_request = kwargs.get('order_by', [])
         if isinstance(order_by_request, str):
             order_by_request = [order_by_request]
@@ -353,11 +398,6 @@ class TweetResource(Resource):
                 name = order_by_bits[0][1:]
                 order = {"order": "desc"}
 
-            # XXX un-comment this after re-factoring in favor for GET object structure
-            #
-            # if name not in self.fields:
-            #     # It's not a field we know about.
-            #     raise InvalidSortError("No matching '%s' field for ordering on." % field_name)
             if name not in self._meta.ordering:
                 raise InvalidSortError(
                     "The '%s' field does not allow ordering." % name
@@ -373,20 +413,17 @@ class TweetResource(Resource):
         #   tweets at the top)
         # - otherwise add timestamp to the end of list (will be default
         #   if sort isn't specified)
-        if kwargs.get('search', False):
-            order_by = [{"_score": {"order": "desc"}}]
-        else:
-            order_keys = flatten_list([x.keys() for x in order_by])
-            if settings.ES_TIMESTAMP_FIELD not in order_keys:
-                order_by.append({
-                    settings.ES_TIMESTAMP_FIELD: {"order": "desc"}
-                    })
+        order_keys = flatten_list([x.keys() for x in order_by])
+        if settings.ES_TIMESTAMP_FIELD not in order_keys:
+            order_by.append({
+                settings.ES_TIMESTAMP_FIELD: {"order": "desc"}
+                })
         return order_by
 
     def get_aggregate_by(self, **filters):
         aggregate_by = {}
-        if filters.get('agg_timestamp', False):
-            interval = filters.get("agg_precision", settings.TIMESTAMP_PRECISION)
+        if "agg_timestamp" in filters:
+            interval = filters.get("agg_timestamp__interval", settings.TIMESTAMP_INTERVAL)
             aggregate_by.update({
                 "agg_timestamp": {
                     "date_histogram": {
@@ -395,8 +432,8 @@ class TweetResource(Resource):
                         }
                     }
                 })
-        if filters.get('agg_floodprob', False):
-            interval = filters.get("agg_precision", settings.TIMESTAMP_PRECISION)
+        if "agg_floodprob" in filters:
+            interval = filters.get("agg_floodprob__interval", settings.TIMESTAMP_INTERVAL)
             aggregate_by.update({
                 "agg_floodprob": {
                     "date_histogram": {
@@ -412,9 +449,9 @@ class TweetResource(Resource):
                         }
                     }
                 })
-        if filters.get('agg_hotspot', False):
-            precision = filters.get("agg_precision", settings.HOTSPOTS_PRECISION)
-            size = filters.get("agg_size", settings.HOTSPOTS_MAX_NUMBER)
+        if "agg_hotspot" in filters:
+            precision = filters.get("agg_hotspot__precision", settings.HOTSPOTS_PRECISION)
+            size = filters.get("agg_hotspot__size", settings.HOTSPOTS_MAX_NUMBER)
             aggregate_by.update({
                 "agg_hotspot": {
                     "geohash_grid": {
@@ -436,11 +473,10 @@ class TweetResource(Resource):
     def obj_get_list(self, bundle, **kwargs):
         filters = {}
         self.messages = dict((x, []) for x in MSG_KEYS)
-        if hasattr(bundle.request, 'GET'):
+        if hasattr(bundle.request, "GET"):
             filters = bundle.request.GET.dict()
         filters.update(kwargs)
 
-        # XXX __init__ these all
         self.match = self.build_query(**filters)
         self.filters = self.build_filters(**filters)
         self.sort = self.get_order_by(**filters)
@@ -457,23 +493,23 @@ class TweetResource(Resource):
 
 class CategorizedTweetResource(TweetResource):
     class Meta:
-        resource_name = 'tweet_categorized'
-        list_allowed_methods = ('get', 'delete')
-        detail_uri_name = 'tweetid'
+        resource_name = "tweet_categorized"
+        list_allowed_methods = ("get", "delete")
+        detail_uri_name = "tweetid"
         detail_allowed_methods = []
         filtering = {
-            'flood_probability': ('gte',),
-            'lang': ('exact',),
-            'country': ('exact',),
+            "flood_probability": ("gte",),
+            "lang": ("exact",),
+            "country": ("exact",),
             }
         ordering = [
             settings.ES_TIMESTAMP_FIELD,
-            'flood_probability',
-            'country',
-            'lang',
-            'user_lang',
-            'user_name',
-            'user_time_zone',
+            "flood_probability",
+            "country",
+            "lang",
+            "user_lang",
+            "user_name",
+            "user_time_zone",
             ]
         match_fields = [
             "text", "tokens", "place", "user_name",
@@ -559,6 +595,9 @@ class CategorizedTweetResource(TweetResource):
         return data
 
     def _delete_docs(self, objects_list, categorized):
+        """
+        Actual deletion of non-representative tweets.
+        """
         ids_to_delete = []
         for cluster in categorized:
             for doc in cluster["docs"]["non_representative_docs"]:
@@ -578,7 +617,13 @@ class CategorizedTweetResource(TweetResource):
                 else:
                     log_all_ok(result, authed_obj["tweetid"])
 
+    # TODO
+    # re-assign this to PATCH! DELETE should delete!
     def obj_delete_list(self, bundle, **kwargs):
+        """
+        delete_list doesn't actually delete anything - except it marks
+        analyzes tweets and marks them as representative or non-representative.
+        """
         objects_list = self.obj_get_list(bundle=bundle, **kwargs)
         categorized = self._categorize(bundle.request, objects_list)
 

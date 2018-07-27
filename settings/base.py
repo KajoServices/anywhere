@@ -252,7 +252,6 @@ ES_BOUNDING_BOX_FIELDS = [
     ]
 
 
-
 # Hotspots on the map
 HOTSPOT_MIN_ENTRIES = 5
 HOTSPOTS_MAX_NUMBER = 1000
@@ -261,8 +260,13 @@ HOTSPOTS_MAX_NUMBER = 1000
 HOTSPOTS_PRECISION = 4
 
 
+# Geo settings:
+# Coordinate reference system
+GEO_CRS = "EPSG:4326"
+
+
 # Timestamp charts
-TIMESTAMP_PRECISION = '10m'
+TIMESTAMP_INTERVAL = '10m'
 
 
 # Countries reference file
@@ -279,6 +283,7 @@ WORLD_BORDERS = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
 
 # API settings
 API_LIMIT_PER_PAGE = 36
+API_OBJECTS_KEY = "features"
 
 
 # Representative tweets settings.

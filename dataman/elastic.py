@@ -3,17 +3,14 @@ import re
 from django.conf import settings
 from django.db.models.constants import LOOKUP_SEP
 
-from elasticsearch import Elasticsearch, NotFoundError
+from elasticsearch import NotFoundError
 
-import settings.base as conf
 from core.utils import get_val_by_path, build_filters_geo, build_filters_time, \
      QUERY_TERMS
 
 
-es = Elasticsearch(
-    [settings.ES_ADDRESS], port=conf.ES_PORT,
-    timeout=30, max_retries=10, retry_on_timeout=True
-    )
+es = settings.ES_CLIENT
+
 
 ES_INDEX_MAPPING = {
     "properties": {
