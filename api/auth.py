@@ -77,8 +77,16 @@ class UserAuthorization(Authorization):
     def create_list(self, object_list, bundle):
         raise Unauthorized(_(MSG_UNAUTHORIZED))
 
+    def su_or_staff(self, bundle):
+        user = bundle.request.user
+        try:
+            return user.is_active and (user.is_superuser or user.is_staff)
+        except AttributeError:
+            raise Unauthorized(_('You have to authenticate first!'))
+
     def create_detail(self, object_list, bundle):
-        raise Unauthorized(_(MSG_UNAUTHORIZED))
+        """Superusers and staff can create docs."""
+        return self.su_or_staff(bundle)
 
     def update_list(self, object_list, bundle):
         raise Unauthorized(_(MSG_UNAUTHORIZED))
@@ -90,7 +98,8 @@ class UserAuthorization(Authorization):
         raise Unauthorized(_(MSG_UNAUTHORIZED))
 
     def delete_detail(self, object_list, bundle):
-        raise Unauthorized(_(MSG_UNAUTHORIZED))
+        """Superusers and staff can delete docs."""
+        return self.su_or_staff(bundle)
 
 
 class StaffAuthorization(Authorization):

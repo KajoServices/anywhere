@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import time
 import json
 import pytest
 
@@ -143,21 +144,45 @@ def test_tweets__agg_floodprob(tweets, test_user, client):
     assert len(content["aggregations"]["agg_floodprob"]) == 2
 
 
-@pytest.xfail
 def test_tweets__agg_hotspot(tweets, test_user, client):
     params = get_params(test_user)
-    params.update({"agg_hotspot": 1})
+    params.update({
+        "top_left_lat": 48.946719,
+        "top_left_lon": -124.945402,
+        "bottom_right_lat": 25.991189,
+        "bottom_right_lon": -62.367277,
+        "agg_hotspot": 1,
+        "size": 0
+        })
     resp = client.get(API_TWEETS, params)
     content = json.loads(resp.content.decode('utf-8'))
-    agg_total_count = sum(x["doc_count"] for x in content["aggregations"]["agg_hotspot"])
-    assert len(content["aggregations"]["agg_hotspot"]) == 5
-    assert agg_total_count == content["meta"]["total_count"]
+    assert len(content["aggregations"]["agg_hotspot"]) == 1
+    assert content["aggregations"]["agg_hotspot"][0]["doc_count"] == 2
 
-    params.update(search="suitable living")
+    params.update({"agg_hotspot__precision": 2})
+    resp = client.get(API_TWEETS, params)
+    content = json.loads(resp.content.decode('utf-8'))
+    assert len(content["aggregations"]["agg_hotspot"]) == 2
+
+    params.update({"search": "extensive damage"})
     resp = client.get(API_TWEETS, params)
     content = json.loads(resp.content.decode('utf-8'))
     assert len(content["aggregations"]["agg_hotspot"]) == 1
 
+
 # TODO
-# - /tweet/ POST, DELETE and PATCH
+# - /tweet/ PATCH
 # - other endpoints
+
+def test_tweets__post_and_delete(tweet_post_doc, staff_user, client):
+    params = get_params(staff_user)
+    params.update({"url": API_TWEETS})
+    url = "{url}?username={username}&api_key={api_key}".format(**params)
+    response = client.post(url, data=json.dumps(tweet_post_doc), content_type='application/json')
+    assert response.status_code == 201
+    assert elastic.search_id(tweet_post_doc["tweet"]["id"])["hits"]["total"] == 1
+
+    params.update({"id": tweet_post_doc["tweet"]["id"]})
+    url = "{url}{id}/?username={username}&api_key={api_key}".format(**params)
+    response = client.delete(url)
+    assert response.status_code == 204
