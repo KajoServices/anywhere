@@ -34,7 +34,6 @@ draftjs-exporter==2.1.2
 editdistance==0.4
 elasticsearch==6.2.0
 elasticsearch-dsl==6.2.1
-en-core-web-lg==2.0.0
 feedfinder2==0.0.4
 feedparser==5.2.1
 gast==0.2.0
