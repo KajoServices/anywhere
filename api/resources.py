@@ -651,7 +651,7 @@ class CountryResource(Resource):
 
     def alter_list_data_to_serialize(self, request, data):
         """Serves plain list of country names."""
-        data["objects"] = [r['NAME'] for r in DBF(settings.COUNTRIES)]
+        data["objects"] = [r['NAME'] for r in DBF(settings.WORLD_BORDERS)]
         cnt = len(data["objects"])
         data["meta"].update({"total_count": cnt, "limit": cnt})
         return data

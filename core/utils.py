@@ -5,6 +5,8 @@ import collections
 from string import ascii_lowercase, digits
 from datetime import datetime, date, time, timedelta
 from tempfile import NamedTemporaryFile
+from geopy.geocoders import Nominatim
+from geopy.distance import distance
 
 import dpath.util
 import dateparser
@@ -12,8 +14,10 @@ import dateparser
 from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.contrib.gis.geos import GEOSGeometry
 
 
+GEO_LOCATOR = Nominatim(user_agent="python")
 CHARS = ascii_lowercase + digits
 TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
 TS_LTE = settings.ES_TIMESTAMP_FIELD + '__lte'
@@ -25,6 +29,14 @@ QUERY_TERMS = [
 
 
 class MalformedValueError(Exception):
+    pass
+
+
+class UnsupportedValueError(Exception):
+    pass
+
+
+class MissingDataError(Exception):
     pass
 
 
@@ -90,7 +102,7 @@ def get_val_by_path(*args, **kwargs):
 
     :args: list of strings
     :kwargs: dict (original document)
-    :return: str
+    :return: object or None
     """
     for path in args:
         try:
@@ -99,7 +111,7 @@ def get_val_by_path(*args, **kwargs):
             continue
         else:
             return val
-    return ''
+    return None
 
 
 def flatten_list(list_):
@@ -327,15 +339,6 @@ def build_filters_time(filters):
     return timestamp_range
 
 
-def avg_coords(rec):
-    _lng, _lat = 0, 0
-    count = len(rec)
-    for each in rec:
-        _lng += rec[each]['lon']
-        _lat += rec[each]['lat']
-    return [_lng*1.0/count, _lat*1.0/count]
-
-
 def build_filters_geo(filters):
     if not all([k in filters for k in settings.ES_BOUNDING_BOX_FIELDS]):
         return {}
@@ -354,3 +357,62 @@ def build_filters_geo(filters):
                 }
             }
         }
+
+
+def avg_coords(rec):
+    lon, lat = 0, 0
+    count = float(len(rec))
+    for each in rec:
+        lon += rec[each]['lon']
+        lat += rec[each]['lat']
+    return {"lat": lat/count, "lon": lon/count}
+
+
+def avg_coords_list(coords):
+    """
+    :param coords: list of lists or tuples [(lon1, lat1), ...(lonN, latN)]
+    :return: dict {lat: xxx, lon: yyy}
+    """
+    count = float(len(coords))
+    lon, lat = 0, 0
+    for x in coords:
+        lon += x[0]
+        lat += x[1]
+    return {"lat": lat/count, "lon": lon/count}
+
+
+def get_place_coords(place):
+    """
+    Figures out geo-coords for a given place.
+
+    :param place: str.
+    :return: dict {lat: <float>, lon: <float>} or empty dict, if unsuccessfull.
+    """
+    coords = {}
+    geo_location = GEO_LOCATOR.geocode(place)
+    try:
+        coords.update({
+            "lat": geo_location.latitude,
+            "lon": geo_location.longitude
+            })
+    except (ValueError, AttributeError):
+        pass
+
+    return coords
+
+
+def geo(lat, lon, srid=4326):
+    return GEOSGeometry('POINT(%.6f %.6f)' % (lon, lat), srid=srid)
+
+
+def meters(point_from, point_to):
+    """
+    Distance in meters between two points.
+
+    :param point_from: dict {lat: <float>, lon: <float>}
+    :param point_to: the same
+    :return: float
+    """
+    point_from = geo(point_from["lat"], point_from["lon"])
+    point_to = geo(point_to["lat"], point_to["lon"])
+    return distance(point_from, point_to).mi

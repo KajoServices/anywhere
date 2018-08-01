@@ -1,18 +1,23 @@
 import re
 import json
+import copy
 import logging
 import dpath.util
 from collections import MutableMapping
 from decimal import Decimal
 from Levenshtein import ratio
+from polyglot.text import Text
 
 from django.conf import settings
+from django.utils import timezone
 
 from dataman.elastic import search, tokenize, FilterConverter, QueryConverter, \
      ES_INDEX_MAPPING, ES_KEYWORDS
 from countries import countries
 from core.utils import RecordDict, get_val_by_path, flatten_dict, \
-     build_filters_geo, build_filters_time
+     get_place_coords, avg_coords_list, meters, get_parsed_datetime, \
+     build_filters_geo, build_filters_time, \
+     UnsupportedValueError, MissingDataError
 
 
 cc = countries.CountryChecker(settings.WORLD_BORDERS)
@@ -196,19 +201,28 @@ class TweetNormalizer(object):
 
     def __init__(self, doc, **kwargs):
         self.original = doc
-        assert isinstance(self.original["tweet"], (dict, str)), \
+        assert isinstance(self.original, (dict, str)), \
             "Wrong type: must be string or dict"
-        if isinstance(self.original["tweet"], str):
-            try:
-                self.original["tweet"] = json.loads(self.original["tweet"])
-            except (TypeError, ValueError):
-                raise
+        if isinstance(self.original, str):
+            self.original = json.loads(self.original)
 
-        self.normalized = self.original["tweet"].copy()
+        try:
+            self.original["annotations"]
+        except KeyError:
+            raise MissingDataError(
+                "Record {} does not contain 'annotations'!".format(self.original["id_str"]))
+
+        if "tweet" in self.original.keys():
+            # Restrcture original doc: place everything at the same level.
+            doc_tweet = copy.deepcopy(self.original["tweet"])
+            del self.original["tweet"]
+            self.original.update(doc_tweet)
+
+        self.normalized = copy.deepcopy(self.original)
 
     def restructure(self, **kwargs):
         """
-        Leaves in place  only elements by given paths.
+        Leaves in place only elements by given paths.
 
         :param preserve_paths: list of str - fields to preserve
             (field names and paths).
@@ -277,20 +291,31 @@ class TweetNormalizer(object):
                 "annotations_combined_model", None)
             })
 
-    def ensure_place(self):
+    def set_flood_probability(self):
+        try:
+            flood_prob = self.original["annotations"]["flood_probability"]
+        except (KeyError, AttributeError):
+            raise MissingDataError("Record {} missing `flood_probability`!"\
+                                   .format(self.original["id_str"]))
+
+        assert isinstance(flood_prob, (Decimal, float, list)), \
+            "Wrong type of flood_probability: must be float or list!"
+
+        if isinstance(flood_prob, list):
+            flood_prob = flood_prob[1] if flood_prob[0] == "yes" else 0
+        self.normalized.update({"flood_probability": flood_prob})
+
+    def set_country(self):
         country = self.normalized.get("country", None)
         if country is None:
             self.normalized["country"] = str(
-                cc.getCountry(
-                    countries.Point(
-                        self.normalized["location"]["lat"],
-                        self.normalized["location"]["lon"]
-                        )
-                    )
-                )
+                cc.getCountry(countries.Point(
+                    self.normalized["location"]["lat"],
+                    self.normalized["location"]["lon"]
+                    )))
         place = self.normalized.get("place", None)
         if place is None:
-            place = self.original["tweet"].get("place", None)
+            place = self.original.get("place", None)
 
             # Try to get place from tweet data. If it is available,
             # check the correctness of country, too.
@@ -304,12 +329,203 @@ class TweetNormalizer(object):
                 return
 
         # Try to get place from user's data.
+        place = self.get_place_from_user()
+        if place:
+            self.normalized["place"] = place.strip()
+
+    def get_locations_from_text(self, text):
+        """
+        Extracts locations from text and fills their geo-coordinates.
+
+        :param text: polyglot.text.Text
+        :return: list of dicts {
+            "place": <str>,
+            "location": {
+                "lat": <float>,
+                "lon": <float>
+                }
+            }
+        """
+        locations = []
+        places = [" ".join(x) for x in text.entities if x.tag == "I-LOC"]
+        for place in places:
+            location = get_place_coords(place)
+            if location:
+                locations.append({
+                    "place": place,
+                    "location": location
+                    })
+        return locations
+
+    def get_place_from_tweet(self):
+        """
+        Tries to get place from tweet record.
+
+        :return: str
+        """
+        place = get_val_by_path("place/full_name", "place/name", **self.original)
+        if place:
+            return place.strip()
+
+        return None
+
+    def get_location_from_tweet(self):
+        """
+        Extracts geo-location in a tweet record.
+
+        :return: dict {
+            "lat": <float>,
+            "lon": <float>
+            }
+        """
+        # Simple point
+        try:
+            # Reverting coordinates as they're mixed up.
+            location = {
+                "lat": self.original["coordinates"]["coordinates"][1],
+                "lon": self.original["coordinates"]["coordinates"][0]
+                }
+        except (KeyError, IndexError, TypeError):
+            location = None
+        if location:
+            place = self.get_place_from_tweet()
+            return {"place": place, "location": location}
+
+        # Approximate point from bounding_box
+        coords = get_val_by_path(
+            'place/bounding_box/coordinates', 'location/geo/coordinates',
+            **self.original
+            )
+        if coords:
+            place = self.get_place_from_tweet()
+            try:
+                location = avg_coords_list(coords[0])
+            except IndexError:
+                location = avg_coords_list(coords)
+
+            return {"place": place, "location": location}
+
+        # Try to get coordinates from place name.
+        place = self.get_place_from_tweet()
+        if not place:
+            return {}
+
+        location = get_place_coords(place)
+        if location:
+            return {"place": place, "location": location}
+
+        return {}
+
+    def get_place_from_user(self):
+        """
+        Tries to get place from user's data.
+
+        :return: str
+        """
         place = get_val_by_path(
             "user/location",
             "user/derived/locations/locality",
-            **self.original["tweet"])
+            **self.original
+            )
         if place:
-            self.normalized["place"] = place.strip()
+            return place.strip()
+
+        return None
+
+    def get_location_from_user(self):
+        """
+        :return: dict {
+            "place": <str>,
+            "location": {
+                "lat": <float>,
+                "lon": <float>
+                }
+            }
+        """
+        place = self.get_place_from_user()
+        if place:
+            location = get_place_coords(place)
+            if location:
+                return {
+                    "place": place,
+                    "location": location
+                    }
+        return {}
+
+    def set_geotag(self, text):
+        """
+        :param text: polyglot.text.Text
+        """
+        locations = self.get_locations_from_text(text)
+        if len(locations) == 1:
+            self.normalized.update(locations[0])
+            return
+
+        # Location obtained from tweet has higher priority.
+        location_tweet = self.get_location_from_tweet()
+        if not location_tweet:
+            location_tweet = self.get_location_from_user()
+
+        if len(locations) == 0:
+            if location_tweet:
+                self.normalized.update(location_tweet)
+                return
+            else:
+                raise MissingDataError("Not enough data for geo-tagging tweet {}" \
+                      .format(self.original["id_str"]))
+
+        if len(locations) > 1:
+            if location_tweet:
+                # longest distance on Earth in meters
+                distance = 20460000
+                location = None
+                for loc in locations:
+                    dist_ = meters(loc["location"], location_tweet["location"])
+                    if dist_ < distance:
+                        location = loc
+                        distance = dist_
+            else:
+                location = locations[0]
+
+        self.normalized.update(location)
+
+    def set_region(self):
+        # TODO: administrative unit
+        # https://drive.google.com/drive/folders/1mJV80c9xZS9RuogFS9oy59E43LaK-dvq
+        pass
+
+    def set_language(self, text):
+        if text.language.code not in settings.LANGS:
+            raise UnsupportedValueError(
+                "Language '{}' is not supported!".format(text.language.code)
+                )
+
+        if text.language.code != self.normalized["lang"]:
+            self.normalized.update({"lang": text.language.code})
+
+    def get_timestamp(self):
+        try:
+            return timezone.datetime.fromtimestamp(
+                int(self.original["timestamp_ms"])*0.001
+                )
+        except (TypeError, IndexError, ValueError):
+            return timezone.now()
+
+    def set_timestamp(self):
+        try:
+            created_at = get_parsed_datetime(self.original["created_at"])
+        except TypeError:
+            created_at = self.get_timestamp()
+
+        if not created_at:
+            raise UnsupportedValueError(
+                "{} - field 'created_at' is wrongly formatted or empty: {}"\
+                .format(self.original["id_str"], self.original["created_at"]))
+        try:
+            created_at = created_at.isoformat()
+        except AttributeError:
+            pass
+        self.normalized.update({"created_at": created_at})
 
     def normalize(self, **kwargs):
         """
@@ -322,14 +538,18 @@ class TweetNormalizer(object):
 
         :return: dict.
         """
-        self.fill_annotations()
-        self.ensure_place()
+        text = Text(self.original["text"])
+        self.set_language(text)
+        self.set_geotag(text)
+        self.set_country()
+        self.set_region()
+        self.set_flood_probability()
+        self.set_timestamp()
 
-        # This should be called before `self.restructure` to collect
-        # hashtags from all fields!
+        # Call prior to `self.restructure` to collect hashtags from all fields!
         hashtags, media_urls = [], []
-        hashtags = collect_hashtags(self.original["tweet"], hashtags)
-        media_urls = collect_media_urls(self.original["tweet"], media_urls)
+        hashtags = collect_hashtags(self.original, hashtags)
+        media_urls = collect_media_urls(self.original, media_urls)
 
         self.restructure(**kwargs)
 
@@ -344,11 +564,16 @@ class TweetNormalizer(object):
             normalized.update(to_flatten)
             self.normalized = normalized
 
+        # TODO: use polyglot for tokenization
+        #       (self.normalized["text"].words -> clean stop-words)
         tokens = tokenize(self.normalized["text"],
                           self.normalized.get("lang", None))
         tokens.extend(hashtags)
-        self.normalized["tokens"] = list(set(tokens))
-        self.normalized["media_urls"] = list(set(media_urls))
+        self.normalized.update({
+            "tokens": list(set(tokens)),
+            "media_urls": list(set(media_urls))
+            })
+        self.normalized.update({"tweetid": self.original["id_str"]})
 
         self.normalized = dict((key, val) for key, val in self.normalized.items()
                                if key in ES_INDEX_MAPPING["properties"].keys())

@@ -265,20 +265,20 @@ HOTSPOTS_PRECISION = 4
 GEO_CRS = "EPSG:4326"
 
 
-# Timestamp charts
-TIMESTAMP_INTERVAL = '10m'
+# Timestamp interval
+TIMESTAMP_INTERVAL = "10m"
 
 
-# Countries reference file
-COUNTRIES = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
+# World borders reference file
+WORLD_BORDERS = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
 
 
 # Celery
 CELERY_ACCEPT_CONTENT = ['application/json', 'pickle']
 
 
-# World borders file
-WORLD_BORDERS = rel('countries', 'TM_WORLD_BORDERS-0.3.dbf')
+# Available languages
+LANGS = ["en", "fr", "es", "de"]
 
 
 # API settings
