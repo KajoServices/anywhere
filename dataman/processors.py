@@ -538,13 +538,19 @@ class TweetNormalizer(object):
 
         :return: dict.
         """
-        text = Text(self.original["text"])
-        self.set_language(text)
-        self.set_geotag(text)
-        self.set_country()
-        self.set_region()
-        self.set_flood_probability()
-        self.set_timestamp()
+        if "latlong" in self.original.keys():
+            # OLD processing - delete after testing
+            self.fill_annotations()
+        else:
+            # NEW processing
+            self.normalized.update({"tweetid": self.original["id_str"]})
+            text = Text(self.original["text"])
+            self.set_language(text)
+            self.set_geotag(text)
+            self.set_country()
+            self.set_region()
+            self.set_flood_probability()
+            self.set_timestamp()
 
         # Call prior to `self.restructure` to collect hashtags from all fields!
         hashtags, media_urls = [], []
@@ -573,7 +579,6 @@ class TweetNormalizer(object):
             "tokens": list(set(tokens)),
             "media_urls": list(set(media_urls))
             })
-        self.normalized.update({"tweetid": self.original["id_str"]})
 
         self.normalized = dict((key, val) for key, val in self.normalized.items()
                                if key in ES_INDEX_MAPPING["properties"].keys())
