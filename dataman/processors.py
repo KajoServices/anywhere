@@ -219,6 +219,14 @@ class TweetNormalizer(object):
             self.original.update(doc_tweet)
 
         self.normalized = copy.deepcopy(self.original)
+        self.normalized.update({
+            "tweetid": str(self.original["id"]),
+            "flood_probability": self.get_flood_prob(),
+            "mordecai_raw": self.original.get("mordecai_raw", None),
+            "annotations_combined_model": self.original.get(
+                "annotations_combined_model", None
+                )
+            })
 
     def restructure(self, **kwargs):
         """
@@ -242,56 +250,15 @@ class TweetNormalizer(object):
 
         self.normalized.update(subtrees)
 
-    def fill_annotations(self):
+    def get_timestamp(self):
         try:
-            annot = self.original["annotations"]
-        except KeyError:
-            raise Exception("Record must contain 'annotations'!")
+            return timezone.datetime.fromtimestamp(
+                int(self.original["timestamp_ms"])*0.001
+                )
+        except (TypeError, IndexError, ValueError):
+            return timezone.now()
 
-        try:
-            flood_probability = annot["flood_probability"]
-        except (KeyError, AttributeError):
-            raise Exception("Record annotations must contain `flood_probability`!")
-        assert isinstance(flood_probability, (Decimal, float, list)), "Wrong type: must be float or list!"
-        if isinstance(flood_probability, list):
-            flood_probability = flood_probability[1] if flood_probability[0] == "yes" else 0
-
-        try:
-            location = {
-                "lat": self.original["latlong"]["lat"],
-                "lon": self.original["latlong"]["long"]
-                }
-        except TypeError:
-            location = {
-                "lat": self.original["latlong"][0],
-                "lon": self.original["latlong"][1]
-                }
-        except KeyError:
-            raise Exception("Record must contain 'latlong'!")
-
-        try:
-            geotags = self.original["geotags"]
-        except:
-            country = None
-            place = None
-        else:
-            country = geotags.get("country_predicted", None)
-            place = geotags.get("place_name", None)
-
-        self.normalized.update({
-            "tweetid": self.original["tweetid"],
-            "created_at": self.original["created_at"],
-            "lang": self.original["lang"],
-            "flood_probability": flood_probability,
-            "location": location,
-            "country": country,
-            "place": place,
-            "mordecai_raw": self.original.get("mordecai_raw", None),
-            "annotations_combined_model": self.original.get(
-                "annotations_combined_model", None)
-            })
-
-    def set_flood_probability(self):
+    def get_flood_prob(self):
         try:
             flood_prob = self.original["annotations"]["flood_probability"]
         except (KeyError, AttributeError):
@@ -303,7 +270,7 @@ class TweetNormalizer(object):
 
         if isinstance(flood_prob, list):
             flood_prob = flood_prob[1] if flood_prob[0] == "yes" else 0
-        self.normalized.update({"flood_probability": flood_prob})
+        return flood_prob
 
     def set_country(self):
         country = self.normalized.get("country", None)
@@ -503,14 +470,6 @@ class TweetNormalizer(object):
         if text.language.code != self.normalized["lang"]:
             self.normalized.update({"lang": text.language.code})
 
-    def get_timestamp(self):
-        try:
-            return timezone.datetime.fromtimestamp(
-                int(self.original["timestamp_ms"])*0.001
-                )
-        except (TypeError, IndexError, ValueError):
-            return timezone.now()
-
     def set_timestamp(self):
         try:
             created_at = get_parsed_datetime(self.original["created_at"])
@@ -538,19 +497,12 @@ class TweetNormalizer(object):
 
         :return: dict.
         """
-        if "latlong" in self.original.keys():
-            # OLD processing - delete after testing
-            self.fill_annotations()
-        else:
-            # NEW processing
-            self.normalized.update({"tweetid": self.original["id_str"]})
-            text = Text(self.original["text"])
-            self.set_language(text)
-            self.set_geotag(text)
-            self.set_country()
-            self.set_region()
-            self.set_flood_probability()
-            self.set_timestamp()
+        text = Text(self.original["text"])
+        self.set_language(text)
+        self.set_geotag(text)
+        self.set_country()
+        self.set_region()
+        self.set_timestamp()
 
         # Call prior to `self.restructure` to collect hashtags from all fields!
         hashtags, media_urls = [], []

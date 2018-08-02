@@ -415,4 +415,4 @@ def meters(point_from, point_to):
     """
     point_from = geo(point_from["lat"], point_from["lon"])
     point_to = geo(point_to["lat"], point_to["lon"])
-    return distance(point_from, point_to).mi
+    return distance(point_from, point_to).m
