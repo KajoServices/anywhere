@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import random
 import collections
 from string import ascii_lowercase, digits
@@ -82,6 +83,15 @@ def rand_string(size=6):
 
 def _clean(line):
     return re.sub(r'\W+', '_', line)
+
+
+def ensure_dict(obj):
+    assert isinstance(obj, (dict, str)), \
+        "Wrong type: must be string or dict"
+    if isinstance(obj, str):
+        return json.loads(obj)
+
+    return obj
 
 
 def ensure_tmp_dir():

@@ -16,7 +16,7 @@ from dataman.elastic import search, tokenize, FilterConverter, QueryConverter, \
 from countries import countries
 from core.utils import RecordDict, get_val_by_path, flatten_dict, \
      get_place_coords, avg_coords_list, meters, get_parsed_datetime, \
-     build_filters_geo, build_filters_time, \
+     build_filters_geo, build_filters_time, ensure_dict, \
      UnsupportedValueError, MissingDataError
 
 
@@ -200,12 +200,7 @@ class TweetNormalizer(object):
     exclude_from_flatten = ["location"]
 
     def __init__(self, doc, **kwargs):
-        self.original = doc
-        assert isinstance(self.original, (dict, str)), \
-            "Wrong type: must be string or dict"
-        if isinstance(self.original, str):
-            self.original = json.loads(self.original)
-
+        self.original = ensure_dict(doc)
         try:
             self.original["annotations"]
         except KeyError:
@@ -214,7 +209,8 @@ class TweetNormalizer(object):
 
         if "tweet" in self.original.keys():
             # Restrcture original doc: place everything at the same level.
-            doc_tweet = copy.deepcopy(self.original["tweet"])
+            tweet = ensure_dict(self.original["tweet"])
+            doc_tweet = copy.deepcopy(tweet)
             del self.original["tweet"]
             self.original.update(doc_tweet)
 
