@@ -1,5 +1,6 @@
 import datetime
 import geopy
+import logging
 
 from django.conf import settings
 from django.utils import timezone
@@ -20,6 +21,7 @@ app.conf.accept_content = settings.CELERY_ACCEPT_CONTENT
 
 
 INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
+LOG = logging.getLogger("tasks")
 
 
 @app.task
@@ -29,7 +31,7 @@ def fill_geotag(doc):
         #
         # elastic.delete_doc(id_)
         #
-        print("{} deleted. Reason: {}".format(id_, reason))
+        LOG.info("{} deleted. Reason: {}".format(id_, reason))
 
     # Mock fields to use original methods of TweetNormalizer.
     try:
@@ -49,13 +51,13 @@ def fill_geotag(doc):
         geotagged = norm.set_geotag()
     except geopy.exc.GeocoderQuotaExceeded as exc:
         # Passively stop, it isn't our fault... Hope for future.
-        print("{} postponed. Reason: {}".format(doc["tweetid"], exc))
+        LOG.info("{} postponed. Reason: {}".format(doc["tweetid"], exc))
     else:
         if geotagged:
             norm.set_country()
             norm.set_region()
             elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
-            print("{} updated".format(doc["tweetid"]))
+            LOG.info("{} updated".format(doc["tweetid"]))
 
     _delete(doc["tweetid"], "Not enough data for geo-tagging")
 
