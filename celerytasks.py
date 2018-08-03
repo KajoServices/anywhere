@@ -21,7 +21,7 @@ app.conf.accept_content = settings.CELERY_ACCEPT_CONTENT
 
 
 INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
-LOG = logging.getLogger("stream")
+LOG = logging.getLogger("tasks")
 
 
 @app.task
