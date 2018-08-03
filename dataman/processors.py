@@ -2,11 +2,13 @@ import re
 import json
 import copy
 import logging
+import geopy
 import dpath.util
 from collections import MutableMapping
 from decimal import Decimal
 from Levenshtein import ratio
 from polyglot.text import Text
+from shapely.geometry import Point
 
 from django.conf import settings
 from django.utils import timezone
@@ -251,7 +253,7 @@ class TweetNormalizer(object):
             return timezone.datetime.fromtimestamp(
                 int(self.original["timestamp_ms"])*0.001
                 )
-        except (TypeError, IndexError, ValueError):
+        except (KeyError, TypeError, IndexError, ValueError):
             return timezone.now()
 
     def get_flood_prob(self):
@@ -415,14 +417,17 @@ class TweetNormalizer(object):
                     }
         return {}
 
-    def set_geotag(self, text):
+    def set_geotag(self, text=None):
         """
         :param text: polyglot.text.Text
         """
+        if text is None:
+            text = Text(self.original["text"])
+
         locations = self.get_locations_from_text(text)
         if len(locations) == 1:
             self.normalized.update(locations[0])
-            return
+            return True
 
         # Location obtained from tweet has higher priority.
         location_tweet = self.get_location_from_tweet()
@@ -432,10 +437,11 @@ class TweetNormalizer(object):
         if len(locations) == 0:
             if location_tweet:
                 self.normalized.update(location_tweet)
-                return
+                return True
             else:
-                raise MissingDataError("Not enough data for geo-tagging tweet {}" \
+                LOG.warning("Not enough data for geo-tagging tweet {}" \
                       .format(self.original["id_str"]))
+                return False
 
         if len(locations) > 1:
             if location_tweet:
@@ -450,11 +456,18 @@ class TweetNormalizer(object):
             else:
                 location = locations[0]
 
-        self.normalized.update(location)
+        if location:
+            self.normalized.update(location)
+            return True
+
+        return False
 
     def set_region(self):
-        # TODO: administrative unit
-        # https://drive.google.com/drive/folders/1mJV80c9xZS9RuogFS9oy59E43LaK-dvq
+        # # TODO: administrative unit
+        # # https://drive.google.com/drive/folders/1mJV80c9xZS9RuogFS9oy59E43LaK-dvq
+        # tweet_points = [Point(xy) for xy in zip(tweets.latlong[0], tweets.latlong[1])]
+        # region_shapes = regions[['geometry', 'ObjectID']]
+        # tweets_nuts = gpd.sjoin(tweet_points, region_shapes, how="inner", op='intersects')
         pass
 
     def set_language(self, text):
@@ -495,18 +508,26 @@ class TweetNormalizer(object):
         """
         text = Text(self.original["text"])
         self.set_language(text)
-        self.set_geotag(text)
-        self.set_country()
-        self.set_region()
         self.set_timestamp()
+
+        try:
+            geotagged = self.set_geotag(text)
+        except geopy.exc.GeocoderQuotaExceeded:
+            # Exceeded geopy quota, cannot set location reliably.
+            # This will be filled later and asynchronously.
+            pass
+        except Exception:
+            raise
+        else:
+            if geotagged:
+                self.set_country()
+                self.set_region()
 
         # Call prior to `self.restructure` to collect hashtags from all fields!
         hashtags, media_urls = [], []
         hashtags = collect_hashtags(self.original, hashtags)
         media_urls = collect_media_urls(self.original, media_urls)
-
         self.restructure(**kwargs)
-
         if kwargs.get("flatten", True):
             exclude = kwargs.get("exclude_from_flatten", [])
             exclude.extend(self.exclude_from_flatten)

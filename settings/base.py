@@ -114,7 +114,7 @@ STATICFILES_FINDERS = [
 
 STATIC_ROOT = rel('static')
 STATICFILES_DIRS = [
-    rel('staticfiles')
+    rel('staticfiles'),
     ]
 STATIC_URL = '/static/'
 
@@ -263,6 +263,8 @@ HOTSPOTS_PRECISION = 4
 # Geo settings:
 # Coordinate reference system
 GEO_CRS = "EPSG:4326"
+# Interval to check non-geotagged documents, in minutes.
+GEO_TAG_INTERVAL = 5
 
 
 # Timestamp interval

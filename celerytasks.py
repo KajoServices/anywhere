@@ -1,12 +1,9 @@
-import os
-import sys
-import time
-import json
 import datetime
+import geopy
+import logging
 
 from django.conf import settings
 from django.utils import timezone
-from django.db.models.constants import LOOKUP_SEP
 
 from celery import Celery
 from celery.task.base import periodic_task
@@ -22,7 +19,70 @@ app.conf.broker_url = settings.BROKER_URL
 app.conf.result_backend = settings.RESULT_BACKEND
 app.conf.accept_content = settings.CELERY_ACCEPT_CONTENT
 
+
 INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
+LOG = logging.getLogger("stream")
+
+
+@app.task
+def set_geotag(doc):
+    def _delete(id_, reason):
+        # XXX test - uncomment after testing
+        #
+        # elastic.delete_doc(id_)
+        #
+        LOG.info("{} deleted. Reason: {}".format(id_, reason))
+
+    # Mock fields to use original methods of TweetNormalizer.
+    try:
+        doc.update({
+            "annotations": {
+                "flood_probability": doc["flood_probability"]
+                },
+            "id": doc["tweetid"],
+            "id_str": doc["tweetid"]
+            })
+    except Exception:
+        # Documents without flood_probability should be deleted.
+        _delete(doc["tweetid"], "Missing crucial fields")
+
+    norm = TweetNormalizer(doc)
+    try:
+        geotagged = norm.set_geotag()
+    except geopy.exc.GeocoderQuotaExceeded as exc:
+        # Passively stop, it isn't our fault... Hope for future.
+        LOG.info("{} postponed. Reason: {}".format(doc["tweetid"], exc))
+    else:
+        if geotagged:
+            norm.set_country()
+            norm.set_region()
+
+            # XXX test - uncomment after testing
+            #
+            # elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
+            LOG.info("{} updated".format(doc["tweetid"]))
+            #
+
+    _delete(doc["tweetid"], "Not enough data for geo-tagging")
+
+
+@periodic_task(run_every=crontab(minute=settings.GEO_TAG_INTERVAL))
+def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
+    query = {
+        "query": {
+            "bool": {
+                "must_not": {
+                    "exists": {
+                        "field": "location"
+                        }
+                    }
+                }
+            },
+        "size":settings.ES_MAX_RESULTS
+        }
+    queryset = elastic.search(query)
+    for doc in queryset["hits"]["hits"]:
+        set_geotag.delay(doc["_source"])
 
 
 def update_doc(doc):
