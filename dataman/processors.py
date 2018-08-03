@@ -512,9 +512,10 @@ class TweetNormalizer(object):
 
         try:
             geotagged = self.set_geotag(text)
-        except geopy.exc.GeocoderQuotaExceeded:
+        except geopy.exc.GeocoderQuotaExceeded as exc:
             # Exceeded geopy quota, cannot set location reliably.
             # This will be filled later and asynchronously.
+            LOG.warning("Failed to set geotag: {}".format(exc))
             pass
         except Exception:
             raise

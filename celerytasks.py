@@ -25,7 +25,7 @@ LOG = logging.getLogger("tasks")
 
 
 @app.task
-def set_geotag(doc):
+def fill_geotag(doc):
     def _delete(id_, reason):
         # XXX test - uncomment after testing
         #
@@ -56,12 +56,8 @@ def set_geotag(doc):
         if geotagged:
             norm.set_country()
             norm.set_region()
-
-            # XXX test - uncomment after testing
-            #
-            # elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
+            elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
             LOG.info("{} updated".format(doc["tweetid"]))
-            #
 
     _delete(doc["tweetid"], "Not enough data for geo-tagging")
 
@@ -82,7 +78,7 @@ def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
         }
     queryset = elastic.search(query)
     for doc in queryset["hits"]["hits"]:
-        set_geotag.delay(doc["_source"])
+        fill_geotag.delay(doc["_source"])
 
 
 def update_doc(doc):
