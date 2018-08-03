@@ -123,35 +123,34 @@ def es_index_update(timestamp, timestamp_to=None):
     return result
 
 
-@app.task(time_limit=INDEX_UPDATE_TIME_LIMIT,
-          soft_time_limit=INDEX_UPDATE_TIME_LIMIT)
-def run_index_update(timestamp):
-    report = {}
-    msg = ''
-    try:
-        result = es_index_update(timestamp)
-        msg = ". [run_index_update] Done: {}".format(result)
-    except Exception as err:
-        report.update(success=False, error=err)
-        msg = "! [run_index_update] Failed: {}".format(err)
-    else:
-        report.update(success=True)
-        report.update(result)
-    finally:
-        print(msg)
+# # XXX - stale code
+# @app.task(time_limit=INDEX_UPDATE_TIME_LIMIT,
+#           soft_time_limit=INDEX_UPDATE_TIME_LIMIT)
+# def run_index_update(timestamp):
+#     report = {}
+#     msg = ''
+#     try:
+#         result = es_index_update(timestamp)
+#         msg = ". [run_index_update] Done: {}".format(result)
+#     except Exception as err:
+#         report.update(success=False, error=err)
+#         msg = "! [run_index_update] Failed: {}".format(err)
+#     else:
+#         report.update(success=True)
+#         report.update(result)
+#     finally:
+#         print(msg)
 
-    return report
+#     return report
 
-
-# XXX - stale code
-# @periodic_task(run_every=datetime.timedelta(seconds=settings.CASSANDRA_BEAT))
-def monitor_new_records():
-    """
-    Periodically start collecting new records for the last N hours.
-    """
-    timestamp = datetime.datetime.utcnow() \
-              - datetime.timedelta(hours=settings.CASSANDRA_TIMEDELTA)
-    run_index_update.delay(timestamp)
+# # @periodic_task(run_every=datetime.timedelta(seconds=settings.CASSANDRA_BEAT))
+# def monitor_new_records():
+#     """
+#     Periodically start collecting new records for the last N hours.
+#     """
+#     timestamp = datetime.datetime.utcnow() \
+#               - datetime.timedelta(hours=settings.CASSANDRA_TIMEDELTA)
+#     run_index_update.delay(timestamp)
 
 
 @app.task
