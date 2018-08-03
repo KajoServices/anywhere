@@ -9,15 +9,15 @@ from celery import Celery
 from celery.task.base import periodic_task
 from celery.task.schedules import crontab
 
-from dataman import cassandra, elastic
-from dataman.processors import categorize_repr_docs, TweetNormalizer, \
-     ClusterBuilder, GeoClusterBuilder
-
-
 app = Celery('celerytasks')
 app.conf.broker_url = settings.BROKER_URL
 app.conf.result_backend = settings.RESULT_BACKEND
 app.conf.accept_content = settings.CELERY_ACCEPT_CONTENT
+
+
+from dataman import cassandra, elastic
+from dataman.processors import categorize_repr_docs, TweetNormalizer, \
+     ClusterBuilder, GeoClusterBuilder
 
 
 INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
@@ -43,7 +43,7 @@ def fill_geotag(doc):
             "id_str": doc["tweetid"]
             })
     except Exception:
-        # Documents without flood_probability should be deleted.
+        # Documents without crucial fields should be deleted.
         _delete(doc["tweetid"], "Missing crucial fields")
 
     norm = TweetNormalizer(doc)
