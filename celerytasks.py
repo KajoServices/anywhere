@@ -2,6 +2,8 @@ import datetime
 import geopy
 import logging
 
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -9,15 +11,14 @@ from celery import Celery
 from celery.task.base import periodic_task
 from celery.task.schedules import crontab
 
+from dataman import cassandra, elastic
+from dataman.processors import categorize_repr_docs, TweetNormalizer, \
+     ClusterBuilder, GeoClusterBuilder
+
 app = Celery('celerytasks')
 app.conf.broker_url = settings.BROKER_URL
 app.conf.result_backend = settings.RESULT_BACKEND
 app.conf.accept_content = settings.CELERY_ACCEPT_CONTENT
-
-
-from dataman import cassandra, elastic
-from dataman.processors import categorize_repr_docs, TweetNormalizer, \
-     ClusterBuilder, GeoClusterBuilder
 
 
 INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
