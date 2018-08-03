@@ -8,7 +8,6 @@ from collections import MutableMapping
 from decimal import Decimal
 from Levenshtein import ratio
 from polyglot.text import Text
-from shapely.geometry import Point
 
 from django.conf import settings
 from django.utils import timezone
@@ -465,6 +464,7 @@ class TweetNormalizer(object):
     def set_region(self):
         # # TODO: administrative unit
         # # https://drive.google.com/drive/folders/1mJV80c9xZS9RuogFS9oy59E43LaK-dvq
+        # from shapely.geometry import Point
         # tweet_points = [Point(xy) for xy in zip(tweets.latlong[0], tweets.latlong[1])]
         # region_shapes = regions[['geometry', 'ObjectID']]
         # tweets_nuts = gpd.sjoin(tweet_points, region_shapes, how="inner", op='intersects')
