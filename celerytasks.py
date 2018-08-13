@@ -15,6 +15,7 @@ from celery.task.schedules import crontab
 import datetime
 import logging
 import geopy
+import urllib
 
 from dataman import cassandra, elastic
 from dataman.processors import categorize_repr_docs, TweetNormalizer, \
@@ -33,11 +34,8 @@ LOG = logging.getLogger("tasks")
 @app.task
 def fill_geotag(doc):
     def _delete(id_, reason):
-        # XXX test - uncomment after testing
-        #
-        # elastic.delete_doc(id_)
-        #
-        LOG.info("{} deleted. Reason: {}".format(id_, reason))
+        elastic.delete_doc(id_)
+        LOG.debug("{} deleted. Reason: {}".format(id_, reason))
 
     # Mock fields to use original methods of TweetNormalizer.
     try:
@@ -55,15 +53,15 @@ def fill_geotag(doc):
     norm = TweetNormalizer(doc)
     try:
         geotagged = norm.set_geotag()
-    except geopy.exc.GeocoderQuotaExceeded as exc:
+    except (geopy.exc.GeocoderQuotaExceeded, urllib.error.HTTPError) as exc:
         # Passively stop, it isn't our fault... Hope for future.
-        LOG.info("{} postponed. Reason: {}".format(doc["tweetid"], exc))
+        LOG.debug("{} postponed. Reason: {}".format(doc["tweetid"], exc))
     else:
         if geotagged:
             norm.set_country()
             norm.set_region()
             elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
-            LOG.info("{} updated".format(doc["tweetid"]))
+            LOG.debug("{} updated".format(doc["tweetid"]))
 
     _delete(doc["tweetid"], "Not enough data for geo-tagging")
 
