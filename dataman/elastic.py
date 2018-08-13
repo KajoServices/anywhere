@@ -448,11 +448,18 @@ class FilterConverter(object):
         if schema:
             self.schema = schema
 
+    def get_exist_filters(self):
+        return [
+            {"exists": {"field": settings.ES_TIMESTAMP_FIELD}},
+            {"exists": {"field": settings.ES_GEO_FIELD}},
+            ]
+
     def convert(self, schema=None, keywords=None):
         if not self.input_filters:
             return {}
 
         es_filters = []
+        es_filters.extend(self.get_exist_filters())
         self.fill_keywords(keywords)
         self.fill_schema(schema)
 
