@@ -1,11 +1,9 @@
+from __future__ import absolute_import
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-
-import datetime
-import logging
-import geopy
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'settings.base')
 
 from django.conf import settings
 from django.utils import timezone
@@ -13,6 +11,10 @@ from django.utils import timezone
 from celery import Celery
 from celery.task.base import periodic_task
 from celery.task.schedules import crontab
+
+import datetime
+import logging
+import geopy
 
 from dataman import cassandra, elastic
 from dataman.processors import categorize_repr_docs, TweetNormalizer, \
