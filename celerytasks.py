@@ -30,43 +30,12 @@ INDEX_UPDATE_TIME_LIMIT = settings.CASSANDRA_BEAT + 60
 LOG = logging.getLogger("tasks")
 
 
-@app.task
-def fill_geotag(doc):
-    def _delete(id_, reason):
-        elastic.delete_doc(id_)
-        LOG.debug("{} deleted. Reason: {}".format(id_, reason))
-
-    # Mock fields to use original methods of TweetNormalizer.
-    try:
-        doc.update({
-            "annotations": {
-                "flood_probability": doc["flood_probability"]
-                },
-            "id": doc["tweetid"],
-            "id_str": doc["tweetid"]
-            })
-    except Exception:
-        # Documents without crucial fields should be deleted.
-        _delete(doc["tweetid"], "Missing crucial fields")
-
-    norm = TweetNormalizer(doc)
-    try:
-        geotagged = norm.set_geotag()
-    except geopy.exc.GeocoderQuotaExceeded as exc:
-        # Passively stop, it isn't our fault... Hope for future.
-        LOG.debug("{} postponed. Reason: {}".format(doc["tweetid"], exc))
-    else:
-        if geotagged:
-            norm.set_country()
-            norm.set_region()
-            elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
-            LOG.debug("{} updated".format(doc["tweetid"]))
-
-    _delete(doc["tweetid"], "Not enough data for geo-tagging")
-
-
 @periodic_task(run_every=crontab(minute=settings.GEO_TAG_INTERVAL))
 def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
+    def _delete(id_, reason):
+        elastic.delete_doc(id_)
+        LOG.info("{} deleted. Reason: {}".format(id_, reason))
+
     query = {
         "query": {
             "bool": {
@@ -80,8 +49,32 @@ def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
         "size":settings.ES_MAX_RESULTS
         }
     queryset = elastic.search(query)
+    to_delete = []
     for doc in queryset["hits"]["hits"]:
-        fill_geotag.delay(doc["_source"])
+        # Mock fields to use original methods of TweetNormalizer.
+        try:
+            doc.update({
+                "annotations": {"flood_probability": doc["flood_probability"]},
+                "id": doc["tweetid"],
+                "id_str": doc["tweetid"]
+                })
+        except Exception:
+            # Documents without crucial fields should be deleted.
+            _delete(doc["tweetid"], "Not enough data for geo-tagging")
+            continue
+
+        norm = TweetNormalizer(doc)
+        try:
+            geotagged = norm.set_geotag()
+        except geopy.exc.GeocoderQuotaExceeded as exc:
+            # Passively stop, it isn't our fault... Hope for future.
+            LOG.debug("{} postponed. Reason: {}".format(doc["tweetid"], exc))
+        else:
+            if geotagged:
+                norm.set_country()
+                norm.set_region()
+                elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
+                LOG.info("{} updated".format(doc["tweetid"]))
 
 
 def update_doc(doc):
