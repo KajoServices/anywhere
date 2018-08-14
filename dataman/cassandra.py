@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from cassandra.cluster import Cluster
 
-import settings.base as conf
+from django.conf import settings
 
 
 class CassandraProxy(object):
@@ -21,8 +21,8 @@ class CassandraProxy(object):
     def __init__(self, *args, **kwargs):
         self.nodes = list(args)
         if self.nodes == []:
-            self.nodes = [conf.CASSANDRA_NODE_ADDRESS]
-        self.keyspace = kwargs.get('keyspace', conf.CASSANDRA_KEYSPACE)
+            self.nodes = [settings.CASSANDRA_NODE_ADDRESS]
+        self.keyspace = kwargs.get('keyspace', settings.CASSANDRA_KEYSPACE)
 
     def open_connection(self):
         self.cluster = Cluster(self.nodes)
@@ -67,13 +67,13 @@ class CassandraProxy(object):
         :param timestamp: datetime.datetime or string
 
         :kwargs timeout: seconds
-        :kwargs table: str (conf.CASSANDRA_DEFAULT_TABLE if not provided)
+        :kwargs table: str (settings.CASSANDRA_DEFAULT_TABLE if not provided)
         :kwargs timestamp_to: datetime.datetime or string
         :kwargs limit: int
 
         :return: dict
         """
-        table = kwargs.get('table', conf.CASSANDRA_DEFAULT_TABLE)
+        table = kwargs.get('table', settings.CASSANDRA_DEFAULT_TABLE)
         timeout = kwargs.get('timeout', 30)
         qry = self.build_query(timestamp, table, **kwargs)
 
@@ -100,8 +100,8 @@ class CassandraProxy(object):
         qry = "SELECT {}\n".format(", ".join(self.fields_extract))
         qry += "FROM {}\n".format(table)
         qry += "WHERE monthbucket = '{}'\n".format(timestamp.strftime('%Y-%m'))
-        qry += "AND ttype = 'geoparsed'\n"
-        qry += "AND collectionid = {}\n".format(conf.CASSANDRA_COLLECTION_ID)
+        # qry += "AND ttype = 'geoparsed'\n"
+        qry += "AND collectionid = {}\n".format(settings.CASSANDRA_COLLECTION_ID)
         qry += "AND created_at >= '{}'".format(
             timestamp.strftime('%Y-%m-%d %H:%M:%S'))
 

@@ -49,7 +49,6 @@ def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
         "size":settings.ES_MAX_RESULTS
         }
     queryset = elastic.search(query)
-    to_delete = []
     for doc in queryset["hits"]["hits"]:
         # Mock fields to use original methods of TweetNormalizer.
         try:
@@ -181,7 +180,7 @@ def full_reindex():
     print(". [full_reindex] finished")
 
 
-def delete_retweets(*terms, **filters):
+def set_representative_flag(*terms, **filters):
     if settings.ES_GEO_FIELD in terms:
         # Clustering tweets by geolocation.
         terms = tuple(x for x in terms if x != settings.ES_GEO_FIELD)
@@ -194,18 +193,17 @@ def delete_retweets(*terms, **filters):
     for cluster in result["clusters"]:
         categorized = categorize_repr_docs(cluster["docs"])
 
-        # XXX update "representative" flag instead of delete.
+        # Update "representative" flag.
         for doc in categorized["non_representative_docs"]:
             elastic.update_doc(doc["_id"], reprsentative=False)
-            # elastic.delete_doc(doc["_id"])
 
         for doc in categorized["representative_docs"]:
             elastic.update_doc(doc["_id"], reprsentative=True)
 
 
 @periodic_task(run_every=crontab(minute=settings.STREAM_TIMEFRAME))
-def task_retain_representative_tweets():
+def task_mark_representative_tweets():
     timestamp_gte = settings.ES_TIMESTAMP_FIELD + '__gte'
     past = (timezone.now() - timezone.timedelta(minutes=settings.STREAM_TIMEFRAME))
     filters = {timestamp_gte: past.isoformat()}
-    delete_retweets(filters)
+    set_representative_flag(filters)
