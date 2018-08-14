@@ -8,7 +8,6 @@ from datetime import datetime, date, time, timedelta
 from tempfile import NamedTemporaryFile
 from geopy.geocoders import Nominatim
 from geopy.distance import distance
-from geopy.extra.rate_limiter import RateLimiter
 
 import dpath.util
 import dateparser
@@ -20,7 +19,6 @@ from django.contrib.gis.geos import GEOSGeometry
 
 
 GEO_LOCATOR = Nominatim(user_agent="python")
-GEO_CODE = RateLimiter(GEO_LOCATOR.geocode, min_delay_seconds=1)
 
 CHARS = ascii_lowercase + digits
 TS_GTE = settings.ES_TIMESTAMP_FIELD + '__gte'
@@ -401,7 +399,7 @@ def get_place_coords(place):
     :param place: str.
     :return: dict {lat: <float>, lon: <float>} or empty dict, if unsuccessfull.
     """
-    geo_location = GEO_CODE(place)
+    geo_location = GEO_LOCATOR.geocode(place)
     try:
         return {
             "lat": geo_location.latitude,
