@@ -15,7 +15,6 @@ from celery.task.schedules import crontab
 import datetime
 import logging
 import geopy
-import urllib
 
 from dataman import cassandra, elastic
 from dataman.processors import categorize_repr_docs, TweetNormalizer, \
@@ -53,7 +52,7 @@ def fill_geotag(doc):
     norm = TweetNormalizer(doc)
     try:
         geotagged = norm.set_geotag()
-    except (geopy.exc.GeocoderQuotaExceeded, urllib.error.HTTPError) as exc:
+    except geopy.exc.GeocoderQuotaExceeded as exc:
         # Passively stop, it isn't our fault... Hope for future.
         LOG.debug("{} postponed. Reason: {}".format(doc["tweetid"], exc))
     else:
