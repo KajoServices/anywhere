@@ -34,7 +34,7 @@ LOG = logging.getLogger("tasks")
 def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
     def _delete(id_, reason):
         elastic.delete_doc(id_)
-        LOG.info("{} deleted. Reason: {}".format(id_, reason))
+        LOG.debug("{} deleted. Reason: {}".format(id_, reason))
 
     query = {
         "query": {
@@ -49,7 +49,9 @@ def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
         "size":settings.ES_MAX_RESULTS
         }
     queryset = elastic.search(query)
-    for doc in queryset["hits"]["hits"]:
+    for hit in queryset["hits"]["hits"]:
+        doc = hit["_source"]
+
         # Mock fields to use original methods of TweetNormalizer.
         try:
             doc.update({
@@ -57,9 +59,13 @@ def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
                 "id": doc["tweetid"],
                 "id_str": doc["tweetid"]
                 })
-        except Exception:
+        except KeyError:
             # Documents without crucial fields should be deleted.
             _delete(doc["tweetid"], "Not enough data for geo-tagging")
+            continue
+        except Exception as exc:
+            # Unrecognized error - report only.
+            LOG.debug(exc)
             continue
 
         norm = TweetNormalizer(doc)
@@ -73,7 +79,7 @@ def fill_geotags(time_limit=settings.GEO_TAG_INTERVAL*60*0.95):
                 norm.set_country()
                 norm.set_region()
                 elastic.create_or_update_doc(doc["tweetid"], norm.normalized)
-                LOG.info("{} updated".format(doc["tweetid"]))
+                LOG.debug("{} updated".format(doc["tweetid"]))
 
 
 def update_doc(doc):

@@ -100,6 +100,8 @@ class CassandraProxy(object):
         qry = "SELECT {}\n".format(", ".join(self.fields_extract))
         qry += "FROM {}\n".format(table)
         qry += "WHERE monthbucket = '{}'\n".format(timestamp.strftime('%Y-%m'))
+
+        # XXX - TEST!
         # qry += "AND ttype = 'geoparsed'\n"
         qry += "AND collectionid = {}\n".format(settings.CASSANDRA_COLLECTION_ID)
         qry += "AND created_at >= '{}'".format(
@@ -112,6 +114,10 @@ class CassandraProxy(object):
                 timestamp_to = dateparser.parse(timestamp_to)
             qry += "\nAND created_at < '{}'".format(
                 timestamp_to.strftime('%Y-%m-%d %H:%M:%S'))
+
+        # XXX - TEST!
+        qry += "\nALLOW FILTERING"
+
         limit = kwargs.get('limit', None)
         if limit:
             try:
