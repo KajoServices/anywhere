@@ -84,7 +84,7 @@ psycopg2-binary==2.7.4
 ptyprocess==0.5.2
 py==1.5.4
 pycld2==0.31
-Pygments==2.2.0
+Pygments==2.7.4
 PyICU==2.0.3
 PyJWT==1.6.4
 PySocks==1.6.8
