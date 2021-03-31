@@ -51,7 +51,7 @@ Keras-Preprocessing==1.0.2
 kombu==4.1.0
 l18n==2016.6.4
 langdetect==1.0.7
-lxml==4.2.1
+lxml==4.6.3
 Markdown==2.6.11
 mock==2.0.0
 mordecai==2.0.1.post1
