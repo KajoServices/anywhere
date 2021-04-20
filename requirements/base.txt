@@ -82,7 +82,7 @@ protobuf==3.6.0
 psycopg2==2.6.2
 psycopg2-binary==2.7.4
 ptyprocess==0.5.2
-py==1.5.4
+py==1.10.0
 pycld2==0.31
 Pygments==2.2.0
 PyICU==2.0.3
