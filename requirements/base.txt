@@ -120,7 +120,7 @@ tweepy==3.6.0
 tzlocal==1.5.1
 ujson==1.35
 Unidecode==0.4.21
-urllib3==1.22
+urllib3==1.26.5
 vine==1.1.4
 wcwidth==0.1.7
 webencodings==0.5.1
