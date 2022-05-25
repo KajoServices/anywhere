@@ -86,7 +86,7 @@ py==1.5.4
 pycld2==0.31
 Pygments==2.2.0
 PyICU==2.0.3
-PyJWT==1.6.4
+PyJWT==2.4.0
 PySocks==1.6.8
 pytest==3.6.3
 pytest-django==3.3.2
