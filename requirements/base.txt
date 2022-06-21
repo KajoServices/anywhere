@@ -62,7 +62,7 @@ msgpack-numpy==0.4.3.1
 murmurhash==0.28.0
 newspaper3k==0.2.6
 nltk==3.3
-numpy==1.15.0
+numpy==1.22.0
 oauthlib==2.1.0
 olefile==0.45.1
 pandas==0.23.3
