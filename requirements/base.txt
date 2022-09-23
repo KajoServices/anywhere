@@ -78,7 +78,7 @@ pluggy==0.6.0
 polyglot==16.7.4
 preshed==1.0.1
 prompt-toolkit==1.0.15
-protobuf==3.6.0
+protobuf==3.18.3
 psycopg2==2.6.2
 psycopg2-binary==2.7.4
 ptyprocess==0.5.2
